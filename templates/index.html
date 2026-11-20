@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JCB 悠遊卡自動搶登錄系統 Pro</title>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- 頂部標題與狀態 -->
+        <header class="header">
+            <div class="brand">
+                <div class="brand-tags">
+                    <span class="badge">JCB 10% 現金回饋</span>
+                    <span class="badge badge-pro">Pro 強化版</span>
+                </div>
+                <h1>悠遊卡極速自動搶登錄系統</h1>
+                <p class="subtitle">針對 <code>ezweb.easycard.com.tw/Event01/JCBMainServlet</code> 毫秒級自動輪詢、防檢測 Stealth、多卡並行、預約排程與推播通知</p>
+            </div>
+            <div class="header-actions">
+                <button class="btn-secondary" onclick="openSettingsModal()">⚙️ 推播與設定</button>
+                <button class="btn-secondary" onclick="window.open('https://ezweb.easycard.com.tw/Event01/JCBMainServlet', '_blank')">開啟官方活動頁 ↗</button>
+            </div>
+        </header>
+
+        <!-- 搶登控制面板 -->
+        <section class="card-panel control-section">
+            <div class="panel-header">
+                <h2>⚡ 搶登錄極速控制台</h2>
+                <div id="engine-status" class="status-indicator idle">
+                    <span class="dot"></span>
+                    <span class="text">待命中</span>
+                </div>
+            </div>
+            <div class="control-grid">
+                <div class="form-group">
+                    <label>重試間隔 (毫秒)</label>
+                    <input type="number" id="cfg-retry-interval" value="500" min="150" max="5000" step="50">
+                    <span class="hint">未開放或 500 壅塞時刷新間隔</span>
+                </div>
+                <div class="form-group">
+                    <label>多卡同時並行分頁數</label>
+                    <input type="number" id="cfg-workers" value="2" min="1" max="5">
+                    <span class="hint">同時開啟幾個分頁搶不同卡片</span>
+                </div>
+                <div class="form-group">
+                    <label>瀏覽器模式</label>
+                    <select id="cfg-browser-mode">
+                        <option value="false" selected>可視化視窗 (Headed) - 便於人機驗證</option>
+                        <option value="true">無頭模式 (Headless) - 背景執行</option>
+                    </select>
+                    <span class="hint">內建 Stealth 偽裝指紋</span>
+                </div>
+                <div class="form-group">
+                    <label>預約定時啟動 (可選)</label>
+                    <input type="text" id="cfg-schedule" placeholder="例如 2026-12-01 08:59:55">
+                    <span class="hint">格式：YYYY-MM-DD HH:MM:SS</span>
+                </div>
+                <div class="action-buttons full-row">
+                    <button id="btn-start" class="btn-primary" onclick="startTask()">🚀 立即開始搶登 (或排程)</button>
+                    <button id="btn-stop" class="btn-danger" onclick="stopTask()" disabled>🛑 停止 / 取消任務</button>
+                </div>
+            </div>
+        </section>
+
+        <!-- 即時執行終端日誌 -->
+        <section class="card-panel log-section">
+            <div class="panel-header">
+                <h3>即時執行動態 (Live Log)</h3>
+                <span id="log-count" class="badge-count">0 則訊息</span>
+            </div>
+            <div id="log-container" class="terminal-window">
+                <div class="log-line info">[系統就緒] 系統已載入 Stealth 防檢測指紋與多卡並行模組...</div>
+            </div>
+        </section>
+
+        <!-- 卡片清單與登錄統計 -->
+        <section class="card-panel">
+            <div class="panel-header">
+                <div>
+                    <h2>💳 我的 JCB 卡片庫 & 登錄統計</h2>
+                    <p class="section-desc">支援卡片優先權排序、批次匯出/匯入備份。系統將依優先度先搶重要卡片。</p>
+                </div>
+                <div class="table-actions">
+                    <button class="btn-outline" onclick="openAddModal()">＋ 新增卡片</button>
+                    <button class="btn-secondary" onclick="exportCards()">📤 備份匯出</button>
+                    <button class="btn-secondary" onclick="openImportModal()">📥 批次匯入</button>
+                    <div class="dropdown">
+                        <button class="btn-secondary dropdown-toggle">⚙️ 清除與重置</button>
+                        <div class="dropdown-menu">
+                            <a href="javascript:void(0)" onclick="clearRecords('session')">清除「本次執行」狀態</a>
+                            <a href="javascript:void(0)" onclick="clearRecords('yearly')">重置「今年累計登錄次數」</a>
+                            <a href="javascript:void(0)" onclick="clearRecords('all')" class="text-danger">清空所有歷史紀錄</a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="table-responsive">
+                <table class="data-table" id="cards-table">
+                    <thead>
+                        <tr>
+                            <th width="40"><input type="checkbox" id="check-all" onchange="toggleSelectAll(this)"></th>
+                            <th width="70">優先度</th>
+                            <th>卡片名稱 / 標籤</th>
+                            <th>JCB 信用卡卡號</th>
+                            <th>悠遊卡卡號 (16碼)</th>
+                            <th>今年累計登錄成功</th>
+                            <th>本次搶登狀態</th>
+                            <th width="80">操作</th>
+                        </tr>
+                    </thead>
+                    <tbody id="cards-tbody">
+                        <!-- 動態載入卡片 -->
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+        <!-- 新增卡片彈跳視窗 Modal -->
+        <div id="add-modal" class="modal">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3>新增 JCB 悠遊卡</h3>
+                    <span class="close" onclick="closeModal('add-modal')">&times;</span>
+                </div>
+                <form id="add-card-form" onsubmit="saveCard(event)">
+                    <div class="form-group">
+                        <label>卡片自訂名稱 <span class="req">*</span></label>
+                        <input type="text" id="card-name" placeholder="例如：富邦JCB、吉鶴卡、玉山熊本熊" required>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group col-6">
+                            <label>信用卡前 6 碼 <span class="req">*</span></label>
+                            <input type="text" id="card-prefix" maxlength="6" pattern="\d{6}" placeholder="例如 356890" required>
+                        </div>
+                        <div class="form-group col-6">
+                            <label>信用卡後 4 碼 <span class="req">*</span></label>
+                            <input type="text" id="card-suffix" maxlength="4" pattern="\d{4}" placeholder="例如 1234" required>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label>悠遊卡 16 碼卡號 (PID) <span class="req">*</span></label>
+                        <input type="text" id="card-easycard" maxlength="19" placeholder="例如 0123 4567 8901 2345" required>
+                        <span class="hint">悠遊卡背面或晶片下方的 16 碼數字</span>
+                    </div>
+                    <div class="form-group">
+                        <label>搶登優先順序 (數字越大越先搶)</label>
+                        <input type="number" id="card-priority" value="0" min="0" max="99">
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn-secondary" onclick="closeModal('add-modal')">取消</button>
+                        <button type="submit" class="btn-primary">儲存卡片</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <!-- 匯入卡片 Modal -->
+        <div id="import-modal" class="modal">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3>批次匯入卡片 (JSON)</h3>
+                    <span class="close" onclick="closeModal('import-modal')">&times;</span>
+                </div>
+                <div class="form-group">
+                    <label>請貼上先前匯出的 JSON 資料：</label>
+                    <textarea id="import-json" style="width:100%; height:150px; font-family:monospace; padding:8px; border:1px solid #cbd5e1; border-radius:6px;"></textarea>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn-secondary" onclick="closeModal('import-modal')">取消</button>
+                    <button type="button" class="btn-primary" onclick="importCards()">開始匯入</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 推播設定 Modal -->
+        <div id="settings-modal" class="modal">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3>推播通知設定 (Telegram / Webhook)</h3>
+                    <span class="close" onclick="closeModal('settings-modal')">&times;</span>
+                </div>
+                <form id="settings-form" onsubmit="saveSettings(event)">
+                    <div class="form-group">
+                        <label>Telegram Bot Token (可選)</label>
+                        <input type="text" id="set-tg-token" placeholder="例如 123456789:ABCdefGhIJKlmNoPQR">
+                    </div>
+                    <div class="form-group">
+                        <label>Telegram Chat ID (可選)</label>
+                        <input type="text" id="set-tg-chatid" placeholder="例如 987654321">
+                    </div>
+                    <div class="form-group">
+                        <label>自訂 Webhook URL (支援 Discord / Slack / 外部轉發)</label>
+                        <input type="text" id="set-webhook" placeholder="https://discord.com/api/webhooks/...">
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn-secondary" onclick="testNotify()">🔔 測試推播</button>
+                        <button type="button" class="btn-secondary" onclick="closeModal('settings-modal')">取消</button>
+                        <button type="submit" class="btn-primary">儲存設定</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+    </div>
+
+    <script src="/static/js/app.js"></script>
+</body>
+</html>
