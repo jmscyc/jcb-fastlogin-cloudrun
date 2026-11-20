@@ -9,9 +9,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
 from pydantic import BaseModel
 
 import database
-import notify
-from login_engine import engine
-from sleep_guard import sleep_guard
+from login_engine import engine, sleep_guard, send_notification
 
 app = FastAPI(title="JCB 悠遊卡自動搶登錄系統 Pro")
 
@@ -135,7 +133,7 @@ def save_settings(data: SettingsUpdateRequest):
 
 @app.post("/api/settings/test-notify")
 async def test_notify():
-    await notify.send_notification("JCB 搶登助手 - 測試推播", "這是一則測試通知，代表您的推播設定運作正常！🎉")
+    await send_notification("JCB 搶登助手 - 測試推播", "這是一則測試通知，代表您的推播設定運作正常！🎉")
     return {"status": "ok", "message": "測試通知已發送！"}
 
 @app.post("/api/records/clear-session")

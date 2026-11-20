@@ -1,15 +1,20 @@
 import asyncio
 import os
+import re
+import sys
 import time
 import uuid
-from typing import List, Dict, Any, Callable
+import socket
+import struct
+import platform
+from typing import List, Dict, Any, Callable, Optional, Tuple
+import aiohttp
 from playwright.async_api import async_playwright, Browser, BrowserContext, Page, Error as PlaywrightError
 import database
-import notify
-import ntp_utils
-import ocr_utils
-from sleep_guard import sleep_guard
 
+# ==============================================================================
+# 1. 系統常數與目標網址
+# ==============================================================================
 TARGET_URL = "https://ezweb.easycard.com.tw/Event01/JCBLoginServlet"
 BASE_URL = "https://ezweb.easycard.com.tw/Event01/JCBMainServlet"
 
@@ -21,6 +26,215 @@ Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3, 4, 5] });
 Object.defineProperty(navigator, 'languages', { get: () => ['zh-TW', 'zh', 'en-US', 'en'] });
 """
 
+# ==============================================================================
+# 2. Windows 防休眠鎖 (Sleep Guard)
+# ==============================================================================
+class SleepGuard:
+    """
+    Windows 系統防休眠鎖：
+    在預約倒數與搶登期間，防止電腦因閒置進入睡眠或黑屏關閉螢幕。
+    在 Linux / macOS 上自動安全跳過。
+    """
+    def __init__(self):
+        self.is_active = False
+        self.is_windows = platform.system() == "Windows"
+
+    def acquire(self):
+        if not self.is_windows:
+            return
+        try:
+            import ctypes
+            # ES_CONTINUOUS = 0x80000000 | ES_SYSTEM_REQUIRED = 0x00000001 | ES_DISPLAY_REQUIRED = 0x00000002
+            ctypes.windll.kernel32.SetThreadExecutionState(0x80000000 | 0x00000001 | 0x00000002)
+            self.is_active = True
+        except Exception as e:
+            print(f"[SleepGuard] 無法啟用防休眠鎖: {e}")
+
+    def release(self):
+        if not self.is_windows or not self.is_active:
+            return
+        try:
+            import ctypes
+            ctypes.windll.kernel32.SetThreadExecutionState(0x80000000)
+            self.is_active = False
+        except Exception as e:
+            print(f"[SleepGuard] 無法釋放防休眠鎖: {e}")
+
+sleep_guard = SleepGuard()
+
+# ==============================================================================
+# 3. 國家級標準 NTP 精準校時與變速衝刺間隔計算 (NTP Utils)
+# ==============================================================================
+NTP_SERVERS = [
+    "time.stdtime.gov.tw",
+    "clock.stdtime.gov.tw",
+    "pool.ntp.org",
+    "time.google.com"
+]
+
+def get_ntp_offset(timeout: float = 2.0) -> float:
+    """
+    透過 UDP 協定向標準 NTP 伺服器對時，計算本地時鐘與標準時間之毫秒偏差 (Offset)。
+    正值代表本地時間比 NTP 慢，負值代表本地時間比 NTP 快。
+    """
+    NTP_DELTA = 2208988800 # 1900 到 1970 的秒數
+    for server in NTP_SERVERS:
+        try:
+            client = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            client.settimeout(timeout)
+            data = b'\x1b' + 47 * b'\0'
+            t1 = time.time()
+            client.sendto(data, (server, 123))
+            resp, _ = client.recvfrom(1024)
+            t4 = time.time()
+            client.close()
+            
+            if resp and len(resp) >= 48:
+                unpacked = struct.unpack('!12I', resp[0:48])
+                t3 = unpacked[10] + float(unpacked[11]) / (2**32) - NTP_DELTA
+                offset = t3 - ((t1 + t4) / 2)
+                return offset
+        except Exception:
+            continue
+    return 0.0
+
+def get_sprint_interval(now_timestamp: float) -> Tuple[int, str]:
+    """
+    以台北時間 (UTC+8) 為基準，精準計算距離 09:00:00 搶登時刻的間隔與變速衝刺模式。
+    """
+    taipei_time = time.gmtime(now_timestamp + 8 * 3600)
+    seconds_since_midnight_taipei = taipei_time.tm_hour * 3600 + taipei_time.tm_min * 60 + taipei_time.tm_sec
+    target_seconds = 9 * 3600 # 09:00:00
+    diff = target_seconds - seconds_since_midnight_taipei
+    
+    if diff > 1800 or diff < -300:
+        return 500, "常規模式 (500ms)"
+    if -30 <= diff <= 0:
+        return 120, "⚡ 極限毫秒衝刺中 (120ms)"
+    elif 0 < diff <= 5:
+        return 150, "🔥 倒數 5 秒極速衝刺預備 (150ms)"
+    elif 5 < diff <= 30:
+        return 400, "🚀 倒數 30 秒提速巡邏 (400ms)"
+    else:
+        return 2000, f"⏳ 離 09:00 開搶尚有 {int(diff)} 秒，低頻節能巡航 (2000ms)"
+
+# ==============================================================================
+# 4. 驗證碼離線解析器 (Captcha OCR)
+# ==============================================================================
+def solve_captcha_image_sync(image_bytes: bytes) -> str:
+    """
+    1. 優先嘗試載入 ddddocr 進行毫秒級離線推論
+    2. 若環境未安裝 ddddocr，回傳空字串 (改由人工或備援機制處理)
+    """
+    try:
+        import ddddocr
+        ocr = ddddocr.DdddOcr(show_ad=False)
+        res = ocr.classification(image_bytes)
+        clean = re.sub(r'[^a-zA-Z0-9]', '', str(res)).strip()
+        return clean
+    except Exception:
+        pass
+    return ""
+
+async def recognize_captcha_from_page(page: Page) -> Optional[str]:
+    """
+    在 Playwright 頁面上尋找驗證碼圖片元素，擷取圖片並執行解析。
+    """
+    candidate_selectors = [
+        "img[src*='validate']",
+        "img[src*='Validate']",
+        "img[src*='captcha']",
+        "img[src*='Captcha']",
+        "img[src*='code']",
+        "img[id*='validate']",
+        "img[id*='Validate']",
+        "img[id*='captcha']",
+        "img[id*='Captcha']",
+        "#imgCode",
+        "#picCode",
+        "#captchaImg"
+    ]
+    for sel in candidate_selectors:
+        try:
+            elem = await page.query_selector(sel)
+            if elem and await elem.is_visible():
+                img_bytes = await elem.screenshot()
+                if img_bytes:
+                    code = solve_captcha_image_sync(img_bytes)
+                    if code and len(code) >= 3:
+                        return code
+        except Exception:
+            continue
+    return None
+
+# ==============================================================================
+# 5. 輕量化極速 HTTP 探測器 (HTTP Probe)
+# ==============================================================================
+async def fast_http_check(session: aiohttp.ClientSession) -> Tuple[bool, str]:
+    """
+    輕量化極速 HTTP 探測器 (不載入字型/CSS/圖片)：單次探測約 20~50ms
+    """
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "zh-TW,zh;q=0.9,en-US;q=0.8,en;q=0.7"
+    }
+    try:
+        async with session.get(TARGET_URL, headers=headers, timeout=aiohttp.ClientTimeout(total=4)) as resp:
+            if resp.status >= 500:
+                return False, f"伺服器壅塞 (HTTP {resp.status})"
+            text = await resp.text(errors="ignore")
+            if "非開放登錄期間" in text:
+                return False, "非開放登錄期間"
+            if "已額滿" in text:
+                return False, "已額滿"
+            if "txtCreditCard" in text or "txtEasyCard" in text or "JCB" in text:
+                return True, "★★★ 登錄門戶已開啟！ ★★★"
+            return True, "狀態變更 (疑似已開放)"
+    except asyncio.TimeoutError:
+        return False, "連線超時"
+    except Exception as e:
+        return False, f"探測異常: {str(e)[:30]}"
+
+# ==============================================================================
+# 6. 即時通報推播服務 (Telegram / Webhook)
+# ==============================================================================
+async def send_notification(title: str, content: str):
+    """
+    發送推播通知至 Telegram 或 LINE Notify / Webhook
+    """
+    settings = database.get_settings()
+    tg_token = settings.get("tg_bot_token", "")
+    tg_chat_id = settings.get("tg_chat_id", "")
+    webhook_url = settings.get("webhook_url", "")
+    
+    if tg_token and tg_chat_id:
+        tg_url = f"https://api.telegram.org/bot{tg_token}/sendMessage"
+        text = f"📢 *{title}*\n\n{content}"
+        try:
+            async with aiohttp.ClientSession() as session:
+                await session.post(tg_url, json={
+                    "chat_id": tg_chat_id,
+                    "text": text,
+                    "parse_mode": "Markdown"
+                }, timeout=aiohttp.ClientTimeout(total=5))
+        except Exception as e:
+            print(f"[Notify] Telegram 推播失敗: {e}")
+
+    if webhook_url:
+        try:
+            async with aiohttp.ClientSession() as session:
+                await session.post(webhook_url, json={
+                    "title": title,
+                    "text": f"{title}\n{content}",
+                    "content": f"**{title}**\n{content}"
+                }, timeout=aiohttp.ClientTimeout(total=5))
+        except Exception as e:
+            print(f"[Notify] Webhook 推播失敗: {e}")
+
+# ==============================================================================
+# 7. JCB 極速搶登核心引擎 (JCBLoginEngine)
+# ==============================================================================
 class JCBLoginEngine:
     def __init__(self):
         self.is_running = False
@@ -63,9 +277,9 @@ class JCBLoginEngine:
         headless = config.get("headless", False)
         base_interval_ms = config.get("retry_interval_ms", 500)
         max_concurrent_workers = config.get("max_concurrent_workers", 2)
-        auto_captcha = config.get("auto_captcha", True) # 功能 1: 驗證碼自動辨識開關
-        enable_ntp = config.get("enable_ntp", True)       # 功能 2: NTP 國家級精密校時
-        sprint_mode = config.get("sprint_mode", True)     # 功能 2: 變速衝刺模式
+        auto_captcha = config.get("auto_captcha", True)
+        enable_ntp = config.get("enable_ntp", True)
+        sprint_mode = config.get("sprint_mode", True)
         max_duration_seconds = config.get("max_duration_seconds", 0)
         
         self.log(f"=== 啟動 JCB 並行搶登錄任務 (Session: {self.current_session_id}) ===")
@@ -77,12 +291,11 @@ class JCBLoginEngine:
         self.log(f"瀏覽器模式: {'無頭模式 (背景)' if headless else '可視化視窗 (Headed)'}")
         self.log(f"驗證碼自動 OCR 辨識: {'【已啟用 🤖】' if auto_captcha else '【已關閉 (人工輸入)】'}")
         
-        # 功能 2: NTP 校時
         ntp_offset = 0.0
         if enable_ntp:
             self.log("正在連線國家時間伺服器 (time.stdtime.gov.tw) 進行精密校時...")
             try:
-                ntp_offset = await asyncio.to_thread(ntp_utils.get_ntp_offset)
+                ntp_offset = await asyncio.to_thread(get_ntp_offset)
                 self.log(f"✓ NTP 校時完成！本地時間偏差: {ntp_offset*1000:.1f} 毫秒")
             except Exception as e:
                 self.log(f"NTP 校時跳過: {e}")
@@ -191,11 +404,10 @@ class JCBLoginEngine:
                     
                 attempts += 1
                 
-                # 功能 2: 計算變速衝刺間隔
                 current_interval = base_interval_ms
                 if sprint_mode:
                     now_precise = time.time() + ntp_offset
-                    calc_interval, stage_desc = ntp_utils.get_sprint_interval(now_precise)
+                    calc_interval, stage_desc = get_sprint_interval(now_precise)
                     current_interval = calc_interval
                     if attempts % 10 == 1 or current_interval <= 150:
                         self.log(f"[{card_name}] 階段模式: {stage_desc}")
@@ -218,7 +430,7 @@ class JCBLoginEngine:
                     if "已額滿" in content:
                         self.log(f"[{card_name}] 本梯次登錄已顯示「已額滿」！")
                         database.record_login(card_id, "FULL", "本次登錄期間已額滿", self.current_session_id)
-                        await notify.send_notification("JCB 搶登額滿提醒", f"卡片【{card_name}】登錄時系統已顯示額滿。")
+                        await send_notification("JCB 搶登額滿提醒", f"卡片【{card_name}】登錄時系統已顯示額滿。")
                         await page.close()
                         return False
                     
@@ -303,10 +515,9 @@ class JCBLoginEngine:
             await page.evaluate(fill_script)
             self.log(f"[{card_name}] 卡號資訊已填入完畢！")
             
-            # 功能 1: 驗證碼自動辨識與填入 (使用者勾選啟用時)
             if auto_captcha:
                 self.log(f"[{card_name}] 🤖 正在掃描並辨識圖形驗證碼...")
-                captcha_code = await ocr_utils.recognize_captcha_from_page(page)
+                captcha_code = await recognize_captcha_from_page(page)
                 if captcha_code:
                     self.log(f"[{card_name}] 🎯 驗證碼辨識成功: [{captcha_code}]，正在自動填入...")
                     fill_captcha_js = f"""
@@ -321,7 +532,6 @@ class JCBLoginEngine:
                     """
                     await page.evaluate(fill_captcha_js)
                     self.log(f"[{card_name}] ✓ 驗證碼已自動注入！嘗試自動點擊送出按鈕...")
-                    # 嘗試觸發送出
                     submit_js = """
                     () => {
                         const btn = document.querySelector('button[type="submit"], input[type="submit"], input[value*="登錄"], input[value*="送出"], button:has-text("登錄")');
@@ -334,9 +544,7 @@ class JCBLoginEngine:
             else:
                 self.log(f"[{card_name}] 使用者設定為手動輸入驗證碼，請在視窗中輸入...")
 
-            # 發送即時通報
-            await notify.send_notification("JCB 網頁已開放！", f"卡片【{card_name}】已自動填寫卡號，請確認送出！")
-            
+            await send_notification("JCB 網頁已開放！", f"卡片【{card_name}】已自動填寫卡號，請確認送出！")
             self.log(f"[{card_name}] 等候送出與登錄結果中 (最多等候 180 秒)...")
             
             start_time = time.time()
@@ -361,7 +569,7 @@ class JCBLoginEngine:
                     self.log(f"[{card_name}] ★★★ 恭喜！登錄成功！ ★★★")
                     shot_path = await take_screenshot("SUCCESS")
                     database.record_login(card_id, "SUCCESS", "登錄成功", self.current_session_id, shot_path)
-                    await notify.send_notification("🎉 JCB 登錄成功！", f"太棒了！卡片【{card_name}】已成功完成本月搶登錄！")
+                    await send_notification("🎉 JCB 登錄成功！", f"太棒了！卡片【{card_name}】已成功完成本月搶登錄！")
                     await asyncio.sleep(2)
                     await page.close()
                     return True
@@ -378,7 +586,7 @@ class JCBLoginEngine:
                     self.log(f"[{card_name}] 很抱歉，本次登錄已額滿！")
                     shot_path = await take_screenshot("FULL")
                     database.record_login(card_id, "FULL", "本次登錄期間已額滿", self.current_session_id, shot_path)
-                    await notify.send_notification("JCB 搶登額滿提醒", f"卡片【{card_name}】搶登時系統已額滿。")
+                    await send_notification("JCB 搶登額滿提醒", f"卡片【{card_name}】搶登時系統已額滿。")
                     await page.close()
                     return False
                     

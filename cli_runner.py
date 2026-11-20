@@ -3,8 +3,7 @@ import os
 import sys
 import argparse
 import database
-import notify
-from login_engine import engine
+from login_engine import engine, send_notification
 
 # 預設卡片範本（若未提供 Secret 時自動使用此處設定）
 DEFAULT_CARDS = [
@@ -78,7 +77,7 @@ async def main():
         "sprint_mode": not args.no_sprint
     }
 
-    await notify.send_notification("🚀 JCB 雲端搶登任務啟動", f"GitHub Actions 雲端已開始執行搶登，共 {len(selected_cards)} 張卡片正在監測中！")
+    await send_notification("🚀 JCB 雲端搶登任務啟動", f"GitHub Actions 雲端已開始執行搶登，共 {len(selected_cards)} 張卡片正在監測中！")
     await engine.run_task(selected_cards, config)
     print("=== [GitHub Actions 任務結束] ===")
 
