@@ -47,6 +47,7 @@ class SettingsUpdateRequest(BaseModel):
     tg_bot_token: Optional[str] = ""
     tg_chat_id: Optional[str] = ""
     webhook_url: Optional[str] = ""
+    proxy_url: Optional[str] = ""
 
 # 即時日誌快取
 log_messages = []
@@ -129,6 +130,8 @@ def save_settings(data: SettingsUpdateRequest):
         database.update_setting("tg_chat_id", data.tg_chat_id.strip())
     if data.webhook_url is not None:
         database.update_setting("webhook_url", data.webhook_url.strip())
+    if data.proxy_url is not None:
+        database.update_setting("proxy_url", data.proxy_url.strip())
     return {"status": "ok", "message": "設定已儲存"}
 
 @app.post("/api/settings/test-notify")
