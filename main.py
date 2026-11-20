@@ -99,6 +99,12 @@ def toggle_card_selection(data: CardToggleRequest):
     database.update_card_selection(data.card_id, data.is_selected)
     return {"status": "ok"}
 
+@app.post("/api/cards/{card_id}/select")
+def select_card_endpoint(card_id: int, body: Dict[str, Any] = Body(...)):
+    is_selected = body.get("is_selected", True)
+    database.update_card_selection(card_id, is_selected)
+    return {"status": "ok"}
+
 @app.post("/api/cards/priority")
 def set_priority(data: CardPriorityRequest):
     database.update_card_priority(data.card_id, data.priority)
