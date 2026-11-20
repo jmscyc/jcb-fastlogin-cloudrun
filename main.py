@@ -39,6 +39,9 @@ class TaskStartRequest(BaseModel):
     retry_interval_ms: Optional[int] = 500
     max_concurrent_workers: Optional[int] = 2
     scheduled_time: Optional[str] = None # 預約排程時間字串: "YYYY-MM-DD HH:MM:SS"
+    auto_captcha: Optional[bool] = True  # 功能 1: 驗證碼自動辨識開關
+    enable_ntp: Optional[bool] = True    # 功能 2: 國家級精密校時
+    sprint_mode: Optional[bool] = True   # 功能 2: 變速衝刺模式
 
 class SettingsUpdateRequest(BaseModel):
     tg_bot_token: Optional[str] = ""

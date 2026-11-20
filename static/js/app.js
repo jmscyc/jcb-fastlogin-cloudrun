@@ -271,6 +271,10 @@ async function startTask() {
     const headless = document.getElementById("cfg-browser-mode").value === "true";
     const scheduleTime = document.getElementById("cfg-schedule").value.trim() || null;
 
+    const autoCaptcha = document.getElementById("cfg-auto-captcha") ? document.getElementById("cfg-auto-captcha").checked : true;
+    const enableNtp = document.getElementById("cfg-enable-ntp") ? document.getElementById("cfg-enable-ntp").checked : true;
+    const sprintMode = document.getElementById("cfg-sprint-mode") ? document.getElementById("cfg-sprint-mode").checked : true;
+
     try {
         const res = await fetch("/api/task/start", {
             method: "POST",
@@ -279,7 +283,10 @@ async function startTask() {
                 retry_interval_ms: retryInterval,
                 max_concurrent_workers: workers,
                 headless: headless,
-                scheduled_time: scheduleTime
+                scheduled_time: scheduleTime,
+                auto_captcha: autoCaptcha,
+                enable_ntp: enableNtp,
+                sprint_mode: sprintMode
             })
         });
         const data = await res.json();

@@ -23,6 +23,9 @@ async def main():
     parser.add_argument("--interval", type=int, default=500, help="Retry interval in ms")
     parser.add_argument("--workers", type=int, default=2, help="Max concurrent workers")
     parser.add_argument("--timeout", type=int, default=600, help="Max duration in seconds")
+    parser.add_argument("--no-captcha", action="store_true", help="Disable auto captcha recognition")
+    parser.add_argument("--no-ntp", action="store_true", help="Disable NTP network sync")
+    parser.add_argument("--no-sprint", action="store_true", help="Disable dynamic sprint mode")
     args = parser.parse_args()
 
     print("=== [GitHub Actions 雲端自動搶登任務啟動] ===")
@@ -69,7 +72,10 @@ async def main():
         "headless": True,
         "retry_interval_ms": args.interval,
         "max_concurrent_workers": args.workers,
-        "max_duration_seconds": args.timeout
+        "max_duration_seconds": args.timeout,
+        "auto_captcha": not args.no_captcha,
+        "enable_ntp": not args.no_ntp,
+        "sprint_mode": not args.no_sprint
     }
 
     await notify.send_notification("🚀 JCB 雲端搶登任務啟動", f"GitHub Actions 雲端已開始執行搶登，共 {len(selected_cards)} 張卡片正在監測中！")

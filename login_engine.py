@@ -5,6 +5,8 @@ from typing import List, Dict, Any, Callable
 from playwright.async_api import async_playwright, Browser, BrowserContext, Page, Error as PlaywrightError
 import database
 import notify
+import ntp_utils
+import ocr_utils
 
 TARGET_URL = "https://ezweb.easycard.com.tw/Event01/JCBLoginServlet"
 BASE_URL = "https://ezweb.easycard.com.tw/Event01/JCBMainServlet"
@@ -55,16 +57,28 @@ class JCBLoginEngine:
         database.set_current_session_id(self.current_session_id)
         
         headless = config.get("headless", False)
-        retry_interval_ms = config.get("retry_interval_ms", 500)
+        base_interval_ms = config.get("retry_interval_ms", 500)
         max_concurrent_workers = config.get("max_concurrent_workers", 2)
-        max_duration_seconds = config.get("max_duration_seconds", 0) # 0 代表不限時間，或指定秒數安全退場
+        auto_captcha = config.get("auto_captcha", True) # 功能 1: 驗證碼自動辨識開關
+        enable_ntp = config.get("enable_ntp", True)       # 功能 2: NTP 國家級精密校時
+        sprint_mode = config.get("sprint_mode", True)     # 功能 2: 變速衝刺模式
+        max_duration_seconds = config.get("max_duration_seconds", 0)
         
         self.log(f"=== 啟動 JCB 並行搶登錄任務 (Session: {self.current_session_id}) ===")
         self.log(f"目標卡片數量: {len(selected_cards)} 張，多卡並行上限: {max_concurrent_workers} 組分頁")
-        self.log(f"模式: {'無頭模式 (背景)' if headless else '可視化視窗 (Headed)'}")
-        if max_duration_seconds > 0:
-            self.log(f"最大監控時間限制: {max_duration_seconds} 秒")
+        self.log(f"瀏覽器模式: {'無頭模式 (背景)' if headless else '可視化視窗 (Headed)'}")
+        self.log(f"驗證碼自動 OCR 辨識: {'【已啟用 🤖】' if auto_captcha else '【已關閉 (人工輸入)】'}")
         
+        # 功能 2: NTP 校時
+        ntp_offset = 0.0
+        if enable_ntp:
+            self.log("正在連線國家時間伺服器 (time.stdtime.gov.tw) 進行精密校時...")
+            try:
+                ntp_offset = await asyncio.to_thread(ntp_utils.get_ntp_offset)
+                self.log(f"✓ NTP 校時完成！本地時間偏差: {ntp_offset*1000:.1f} 毫秒")
+            except Exception as e:
+                self.log(f"NTP 校時跳過: {e}")
+
         start_time = time.time()
         
         try:
@@ -84,7 +98,6 @@ class JCBLoginEngine:
             )
             await context.add_init_script(STEALTH_JS)
             
-            # 使用 Semaphore 控制多卡並行數量
             sem = asyncio.Semaphore(max_concurrent_workers)
             
             async def worker(card: Dict[str, Any], idx: int):
@@ -92,7 +105,7 @@ class JCBLoginEngine:
                     if self.stop_requested:
                         return
                     self.log(f"🚀 開始處理卡片 [{idx+1}/{len(selected_cards)}]: {card['name']} (尾號 {card['credit_card_suffix']})")
-                    await self._process_single_card(context, card, retry_interval_ms, start_time, max_duration_seconds)
+                    await self._process_single_card(context, card, base_interval_ms, start_time, max_duration_seconds, auto_captcha, sprint_mode, ntp_offset)
 
             tasks = [worker(card, i) for i, card in enumerate(selected_cards)]
             await asyncio.gather(*tasks)
@@ -113,7 +126,7 @@ class JCBLoginEngine:
                 except Exception:
                     pass
 
-    async def _process_single_card(self, context: BrowserContext, card: Dict[str, Any], retry_interval_ms: int, start_time: float, max_duration_seconds: int) -> bool:
+    async def _process_single_card(self, context: BrowserContext, card: Dict[str, Any], base_interval_ms: int, start_time: float, max_duration_seconds: int, auto_captcha: bool, sprint_mode: bool, ntp_offset: float) -> bool:
         page = await context.new_page()
         card_id = card["id"]
         card_name = card["name"]
@@ -123,26 +136,34 @@ class JCBLoginEngine:
             attempts = 0
             
             while not is_open and not self.stop_requested:
-                # 檢查是否超過最大限制秒數
                 if max_duration_seconds > 0 and (time.time() - start_time) > max_duration_seconds:
                     self.log(f"[{card_name}] 已達最大監控時間 ({max_duration_seconds} 秒)，正常退出探測迴圈。")
                     break
                     
                 attempts += 1
+                
+                # 功能 2: 計算變速衝刺間隔
+                current_interval = base_interval_ms
+                if sprint_mode:
+                    now_precise = time.time() + ntp_offset
+                    calc_interval, stage_desc = ntp_utils.get_sprint_interval(now_precise)
+                    current_interval = calc_interval
+                    if attempts % 10 == 1 or current_interval <= 150:
+                        self.log(f"[{card_name}] 階段模式: {stage_desc}")
+
                 try:
-                    self.log(f"[{card_name}] 第 {attempts} 次探測登錄網頁...")
+                    self.log(f"[{card_name}] 第 {attempts} 次探測登錄網頁 (間隔 {current_interval}ms)...")
                     response = await page.goto(TARGET_URL, timeout=8000, wait_until="domcontentloaded")
                     
                     if not response or response.status >= 500:
                         self.log(f"[{card_name}] 伺服器回傳狀態碼 {response.status if response else 'Timeout'} (壅塞中)，準備重試...")
-                        await asyncio.sleep(retry_interval_ms / 1000.0)
+                        await asyncio.sleep(current_interval / 1000.0)
                         continue
                     
                     content = await page.content()
                     
                     if "非開放登錄期間" in content:
-                        self.log(f"[{card_name}] 目前顯示「非開放登錄期間」，間隔 {retry_interval_ms}ms 再次刷新...")
-                        await asyncio.sleep(retry_interval_ms / 1000.0)
+                        await asyncio.sleep(current_interval / 1000.0)
                         continue
                     
                     if "已額滿" in content:
@@ -157,17 +178,17 @@ class JCBLoginEngine:
                     break
                     
                 except PlaywrightError as pe:
-                    self.log(f"[{card_name}] 連線超時或異常 ({str(pe)[:40]})，立刻重新嘗試...")
-                    await asyncio.sleep(retry_interval_ms / 1000.0)
+                    self.log(f"[{card_name}] 連線重試 ({str(pe)[:35]})...")
+                    await asyncio.sleep(current_interval / 1000.0)
                 except Exception as e:
-                    self.log(f"[{card_name}] 刷新錯誤: {str(e)[:50]}，重試中...")
-                    await asyncio.sleep(retry_interval_ms / 1000.0)
+                    self.log(f"[{card_name}] 刷新錯誤: {str(e)[:40]}，重試中...")
+                    await asyncio.sleep(current_interval / 1000.0)
 
             if self.stop_requested or not is_open:
                 await page.close()
                 return False
 
-            return await self._fill_and_submit(page, card)
+            return await self._fill_and_submit(page, card, auto_captcha)
 
         except Exception as e:
             self.log(f"[{card_name}] 處理異常: {str(e)}")
@@ -178,7 +199,7 @@ class JCBLoginEngine:
                 pass
             return False
 
-    async def _fill_and_submit(self, page: Page, card: Dict[str, Any]) -> bool:
+    async def _fill_and_submit(self, page: Page, card: Dict[str, Any], auto_captcha: bool) -> bool:
         card_id = card["id"]
         card_name = card["name"]
         prefix = card["credit_card_prefix"]
@@ -221,8 +242,39 @@ class JCBLoginEngine:
             await page.evaluate(fill_script)
             self.log(f"[{card_name}] 卡號資訊已填入完畢！")
             
-            # 發送通知提醒使用者（若需驗證碼）
-            await notify.send_notification("JCB 網頁已開放！", f"卡片【{card_name}】已自動填寫卡號，請儘速在瀏覽器視窗中完成驗證送出！")
+            # 功能 1: 驗證碼自動辨識與填入 (使用者勾選啟用時)
+            if auto_captcha:
+                self.log(f"[{card_name}] 🤖 正在掃描並辨識圖形驗證碼...")
+                captcha_code = await ocr_utils.recognize_captcha_from_page(page)
+                if captcha_code:
+                    self.log(f"[{card_name}] 🎯 驗證碼辨識成功: [{captcha_code}]，正在自動填入...")
+                    fill_captcha_js = f"""
+                    () => {{
+                        const vInput = document.querySelector('input[name*="Valid"], input[name*="valid"], input[id*="Valid"], input[id*="valid"], input[name*="Code"], input[id*="Code"]');
+                        if (vInput) {{
+                            vInput.value = "{captcha_code}";
+                            vInput.dispatchEvent(new Event('input', {{ bubbles: true }}));
+                            vInput.dispatchEvent(new Event('change', {{ bubbles: true }}));
+                        }}
+                    }}
+                    """
+                    await page.evaluate(fill_captcha_js)
+                    self.log(f"[{card_name}] ✓ 驗證碼已自動注入！嘗試自動點擊送出按鈕...")
+                    # 嘗試觸發送出
+                    submit_js = """
+                    () => {
+                        const btn = document.querySelector('button[type="submit"], input[type="submit"], input[value*="登錄"], input[value*="送出"], button:has-text("登錄")');
+                        if (btn) btn.click();
+                    }
+                    """
+                    await page.evaluate(submit_js)
+                else:
+                    self.log(f"[{card_name}] 提示: 網頁可能無驗證碼或由使用者手動輸入")
+            else:
+                self.log(f"[{card_name}] 使用者設定為手動輸入驗證碼，請在視窗中輸入...")
+
+            # 發送即時通報
+            await notify.send_notification("JCB 網頁已開放！", f"卡片【{card_name}】已自動填寫卡號，請確認送出！")
             
             self.log(f"[{card_name}] 等候送出與登錄結果中 (最多等候 180 秒)...")
             

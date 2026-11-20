@@ -58,6 +58,23 @@
                     <input type="text" id="cfg-schedule" placeholder="例如 2026-12-01 08:59:55">
                     <span class="hint">格式：YYYY-MM-DD HH:MM:SS</span>
                 </div>
+                <div class="form-group full-row" style="background:#f8fafc; padding:12px; border-radius:8px; border:1px solid #e2e8f0;">
+                    <label style="font-weight:700; color:#1e293b; margin-bottom:8px; display:block;">⚡ 極速強化與無人值守功能開關</label>
+                    <div style="display:flex; flex-wrap:wrap; gap:18px;">
+                        <label style="display:flex; align-items:center; gap:6px; cursor:pointer;">
+                            <input type="checkbox" id="cfg-auto-captcha" checked>
+                            <span>🤖 <strong>自動辨識並填入驗證碼 (OCR 打碼)</strong></span>
+                        </label>
+                        <label style="display:flex; align-items:center; gap:6px; cursor:pointer;">
+                            <input type="checkbox" id="cfg-enable-ntp" checked>
+                            <span>⏱️ <strong>國家標準時間 (NTP) 精密校時</strong></span>
+                        </label>
+                        <label style="display:flex; align-items:center; gap:6px; cursor:pointer;">
+                            <input type="checkbox" id="cfg-sprint-mode" checked>
+                            <span>🔥 <strong>三段式倒數智慧衝刺模式 (120ms~150ms)</strong></span>
+                        </label>
+                    </div>
+                </div>
                 <div class="action-buttons full-row">
                     <button id="btn-start" class="btn-primary" onclick="startTask()">🚀 立即開始搶登 (或排程)</button>
                     <button id="btn-stop" class="btn-danger" onclick="stopTask()" disabled>🛑 停止 / 取消任務</button>
