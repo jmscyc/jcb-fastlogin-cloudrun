@@ -167,20 +167,42 @@ async def recognize_captcha_from_page(page: Page) -> Optional[str]:
             continue
     return None
 
+# 官方雙門戶網址 (登錄入口與活動首頁)
+LOGIN_URL = TARGET_URL
+MAIN_URL = "https://ezweb.easycard.com.tw/Event01/JCBMainServlet"
+
 # ==============================================================================
-# 5. 輕量化極速 HTTP 探測器 (HTTP Probe)
+# 5. 輕量化極速雙門戶 HTTP 探測器 (Dual Portal HTTP Probe + Proxy Support)
 # ==============================================================================
-async def fast_http_check(session: aiohttp.ClientSession) -> Tuple[bool, str]:
+async def fast_http_check(session: aiohttp.ClientSession, proxy_url: str = "") -> Tuple[bool, str]:
     """
-    輕量化極速 HTTP 探測器 (不載入字型/CSS/圖片)：單次探測約 20~50ms
+    輕量化極速 HTTP 探測器：支援雙門戶通道 (JCBLoginServlet + JCBMainServlet)
+    與 HTTP Proxy 代理，單次探測約 20~50ms。
     """
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
         "Accept-Language": "zh-TW,zh;q=0.9,en-US;q=0.8,en;q=0.7"
     }
+    proxy_arg = proxy_url.strip() if proxy_url and proxy_url.strip().startswith("http") else None
+
+    # 1. 優先探測直接登錄頁 (LOGIN_URL)
     try:
-        async with session.get(TARGET_URL, headers=headers, timeout=aiohttp.ClientTimeout(total=4)) as resp:
+        async with session.get(LOGIN_URL, headers=headers, proxy=proxy_arg, timeout=aiohttp.ClientTimeout(total=3.5)) as resp:
+            if resp.status < 500:
+                text = await resp.text(errors="ignore")
+                if "txtCreditCard" in text or "txtEasyCard" in text:
+                    return True, "★★★ 登錄門戶已開啟！直接開放填寫 ★★★"
+                if "已額滿" in text:
+                    return False, "官方登錄已額滿"
+                if "非開放登錄期間" not in text and resp.status == 200 and len(text) > 500:
+                    return True, "★★★ 狀態變更 (疑似已開放) ★★★"
+    except Exception:
+        pass
+
+    # 2. 備援探測活動首頁 (MAIN_URL - 官方常在倒數前先在主頁解禁按鈕)
+    try:
+        async with session.get(MAIN_URL, headers=headers, proxy=proxy_arg, timeout=aiohttp.ClientTimeout(total=3.0)) as resp:
             if resp.status >= 500:
                 return False, f"伺服器壅塞 (HTTP {resp.status})"
             text = await resp.text(errors="ignore")
@@ -188,9 +210,9 @@ async def fast_http_check(session: aiohttp.ClientSession) -> Tuple[bool, str]:
                 return False, "非開放登錄期間"
             if "已額滿" in text:
                 return False, "已額滿"
-            if "txtCreditCard" in text or "txtEasyCard" in text or "JCB" in text:
-                return True, "★★★ 登錄門戶已開啟！ ★★★"
-            return True, "狀態變更 (疑似已開放)"
+            if "JCBLoginServlet" in text or "我要登錄" in text:
+                return True, "★★★ 官方活動主頁已開啟登錄按鈕！ ★★★"
+            return False, "門戶尚未開放"
     except asyncio.TimeoutError:
         return False, "連線超時"
     except Exception as e:
@@ -300,12 +322,21 @@ class JCBLoginEngine:
             except Exception as e:
                 self.log(f"NTP 校時跳過: {e}")
 
+        # 支援 Proxy 代理伺服器設定 (Anti-IP Ban 備援)
+        settings = database.get_settings()
+        proxy_url = settings.get("proxy_url", "").strip()
+        proxy_config = None
+        if proxy_url and proxy_url.startswith("http"):
+            proxy_config = {"server": proxy_url}
+            self.log(f"🛡️ 已啟用防封鎖 Proxy 代理: {proxy_url}")
+
         start_time = time.time()
-        
+
         try:
             self.playwright = await async_playwright().start()
             self.browser = await self.playwright.chromium.launch(
                 headless=headless,
+                proxy=proxy_config,
                 args=[
                     "--disable-blink-features=AutomationControlled",
                     "--no-sandbox",
@@ -315,6 +346,7 @@ class JCBLoginEngine:
             
             context = await self.browser.new_context(
                 viewport={"width": 1280, "height": 850},
+                proxy=proxy_config,
                 user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
             )
             await context.add_init_script(STEALTH_JS)
