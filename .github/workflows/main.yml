@@ -1,0 +1,47 @@
+name: JCB FastLogin 雲端自動搶登
+
+on:
+  # 支援在 GitHub 網頁手動點擊「Run workflow」按鈕啟動
+  workflow_dispatch:
+    inputs:
+      retry_interval_ms:
+        description: '重試探測間隔 (毫秒)'
+        required: true
+        default: '500'
+      workers:
+        description: '多卡並行分頁數'
+        required: true
+        default: '2'
+
+  # 定時自動搶登：每月 1、11、21 日 台灣時間 08:58 分 (UTC 00:58) 自動開機
+  schedule:
+    - cron: '58 0 1,11,21 * *'
+
+jobs:
+  fastlogin:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: 檢出專案代碼 (Checkout)
+        uses: actions/checkout@v4
+
+      - name: 設定 Python 環境
+        uses: setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: 安裝依賴套件與 Playwright Chromium
+        run: |
+          pip install fastapi uvicorn playwright jinja2 aiohttp pydantic
+          python -m playwright install --with-deps chromium
+
+      - name: 執行 JCB 極速搶登任務
+        env:
+          HEADLESS: "true"
+          TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
+          TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
+          WEBHOOK_URL: ${{ secrets.WEBHOOK_URL }}
+        run: |
+          python cli_runner.py --interval ${{ github.event.inputs.retry_interval_ms || '500' }} --workers ${{ github.event.inputs.workers || '2' }}
