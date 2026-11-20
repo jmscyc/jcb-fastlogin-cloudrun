@@ -76,10 +76,15 @@
                             <input type="checkbox" id="cfg-sprint-mode" checked>
                             <span>🔥 <strong>三段式倒數智慧衝刺模式 (120ms~150ms)</strong></span>
                         </label>
+                        <label style="display:flex; align-items:center; gap:6px; cursor:pointer;">
+                            <input type="checkbox" id="cfg-enable-audio" checked>
+                            <span>🔊 <strong>搶登成功專屬語音提示</strong></span>
+                        </label>
                     </div>
                 </div>
-                <div class="action-buttons full-row">
+                <div class="action-buttons full-row" style="display:flex; gap:12px; align-items:center;">
                     <button id="btn-start" class="btn-primary" onclick="startTask()">🚀 立即開始搶登 (或排程)</button>
+                    <button id="btn-dryrun" class="btn-secondary" style="border:1px dashed #6366f1; color:#4f46e5; font-weight:600;" onclick="startDryRun()">🧪 演練模擬搶登 (Dry-Run)</button>
                     <button id="btn-stop" class="btn-danger" onclick="stopTask()" disabled>🛑 停止 / 取消任務</button>
                 </div>
             </div>

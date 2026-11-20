@@ -42,6 +42,7 @@ class TaskStartRequest(BaseModel):
     auto_captcha: Optional[bool] = True  # 功能 1: 驗證碼自動辨識開關
     enable_ntp: Optional[bool] = True    # 功能 2: 國家級精密校時
     sprint_mode: Optional[bool] = True   # 功能 2: 變速衝刺模式
+    dry_run: Optional[bool] = False      # 演練模擬測試模式
 
 class SettingsUpdateRequest(BaseModel):
     tg_bot_token: Optional[str] = ""

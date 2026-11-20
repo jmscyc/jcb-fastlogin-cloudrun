@@ -45,10 +45,17 @@ def init_db():
         status TEXT NOT NULL,              -- 'SUCCESS', 'ALREADY_REGISTERED', 'FULL', 'FAILED'
         message TEXT,
         session_id TEXT,                   -- 本次執行的識別碼
+        screenshot_path TEXT,              -- 畫面截圖相對路徑
         timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (card_id) REFERENCES cards(id) ON DELETE CASCADE
     )
     """)
+    
+    # 檢查並補充 screenshot_path 欄位
+    cursor.execute("PRAGMA table_info(login_records)")
+    rec_columns = [col[1] for col in cursor.fetchall()]
+    if "screenshot_path" not in rec_columns:
+        cursor.execute("ALTER TABLE login_records ADD COLUMN screenshot_path TEXT DEFAULT ''")
     
     # 建立系統設定表 (儲存 Webhook, Telegram Token, 定時搶登設定)
     cursor.execute("""
@@ -103,14 +110,14 @@ def delete_card(card_id: int):
     conn.commit()
     conn.close()
 
-def record_login(card_id: int, status: str, message: str, session_id: str):
+def record_login(card_id: int, status: str, message: str, session_id: str, screenshot_path: str = ""):
     now = datetime.now()
     conn = get_connection()
     cursor = conn.cursor()
     cursor.execute("""
-        INSERT INTO login_records (card_id, year, month, status, message, session_id)
-        VALUES (?, ?, ?, ?, ?, ?)
-    """, (card_id, now.year, now.month, status, message, session_id))
+        INSERT INTO login_records (card_id, year, month, status, message, session_id, screenshot_path)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+    """, (card_id, now.year, now.month, status, message, session_id, screenshot_path))
     conn.commit()
     conn.close()
 
@@ -166,7 +173,7 @@ def get_cards_with_stats() -> List[Dict[str, Any]]:
         
         # 獲取本次 session 最新紀錄
         cursor.execute("""
-            SELECT status, message, timestamp
+            SELECT status, message, timestamp, screenshot_path
             FROM login_records
             WHERE card_id = ? AND session_id = ?
             ORDER BY id DESC LIMIT 1
@@ -178,6 +185,7 @@ def get_cards_with_stats() -> List[Dict[str, Any]]:
         card_data["current_session_status"] = current_record["status"] if current_record else "WAITING"
         card_data["current_session_message"] = current_record["message"] if current_record else "尚未執行"
         card_data["current_session_time"] = current_record["timestamp"] if current_record else None
+        card_data["current_session_screenshot"] = current_record["screenshot_path"] if current_record and current_record["screenshot_path"] else ""
         
         # 格式化顯示遮罩
         card_data["masked_credit"] = f"{card['credit_card_prefix']}******{card['credit_card_suffix']}"

@@ -66,7 +66,10 @@ function renderCardsTable(cards) {
                 <td><code>${c.masked_credit}</code></td>
                 <td><code>${c.masked_easycard}</code></td>
                 <td><span class="stat-pill">${c.year_success_count} 次</span></td>
-                <td>${statusBadge}</td>
+                <td>
+                    ${statusBadge}
+                    ${c.current_session_screenshot ? `<div style="margin-top:4px;"><a href="${c.current_session_screenshot}" target="_blank" class="btn-secondary" style="display:inline-block; padding:2px 6px; font-size:11px; text-decoration:none;">📸 檢視截圖</a></div>` : ''}
+                </td>
                 <td>
                     <button class="btn-secondary" style="padding: 4px 8px; font-size: 12px; color: #ef4444;" onclick="deleteCard(${c.id}, '${escapeHtml(c.name)}')">刪除</button>
                 </td>
@@ -310,6 +313,68 @@ async function stopTask() {
     }
 }
 
+async function startDryRun() {
+    const autoCaptcha = document.getElementById("cfg-auto-captcha") ? document.getElementById("cfg-auto-captcha").checked : true;
+    
+    appendLog("🧪 正在啟動演練模擬模式 (Dry-Run)... 預計 5 秒內完成模擬填表與送出！");
+    try {
+        const res = await fetch("/api/task/start", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                retry_interval_ms: 300,
+                max_concurrent_workers: 1,
+                headless: false,
+                auto_captcha: autoCaptcha,
+                enable_ntp: false,
+                sprint_mode: false,
+                dry_run: true
+            })
+        });
+        const data = await res.json();
+        if (data.status === "ok") {
+            appendLog(`[系統] ${data.message}`);
+        } else {
+            alert(data.message);
+        }
+    } catch (err) {
+        alert("啟動模擬失敗: " + err.message);
+    }
+}
+
+// 🔊 搶登成功專屬清脆和弦音 (使用標準 Web Audio API，無需外載 mp3)
+function playSuccessSound() {
+    const audioToggle = document.getElementById("cfg-enable-audio");
+    if (audioToggle && !audioToggle.checked) return;
+    
+    try {
+        const AudioContext = window.AudioContext || window.webkitAudioContext;
+        if (!AudioContext) return;
+        const ctx = new AudioContext();
+        
+        const notes = [523.25, 659.25, 783.99, 1046.50];
+        notes.forEach((freq, i) => {
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+            osc.type = "triangle";
+            osc.frequency.setValueAtTime(freq, ctx.currentTime + i * 0.12);
+            
+            gain.gain.setValueAtTime(0.15, ctx.currentTime + i * 0.12);
+            gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + i * 0.12 + 0.35);
+            
+            osc.connect(gain);
+            gain.connect(ctx.destination);
+            
+            osc.start(ctx.currentTime + i * 0.12);
+            osc.stop(ctx.currentTime + i * 0.12 + 0.35);
+        });
+    } catch (e) {
+        console.warn("無法播放提示音:", e);
+    }
+}
+
+let lastKnownSuccessCount = 0;
+
 function startStatusPolling() {
     if (pollTimer) clearInterval(pollTimer);
     pollTimer = setInterval(async () => {
@@ -321,7 +386,14 @@ function startStatusPolling() {
                 renderLogs(data.logs);
             }
             if (data.is_running || isEngineRunning !== data.is_running) {
-                loadCards();
+                const cRes = await fetch("/api/cards");
+                const cData = await cRes.json();
+                renderCardsTable(cData);
+                const curSuccess = cData.filter(c => c.current_session_status === "SUCCESS").length;
+                if (curSuccess > lastKnownSuccessCount) {
+                    playSuccessSound();
+                    lastKnownSuccessCount = curSuccess;
+                }
             }
             isEngineRunning = data.is_running;
         } catch (err) {

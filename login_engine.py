@@ -1,4 +1,5 @@
 import asyncio
+import os
 import time
 import uuid
 from typing import List, Dict, Any, Callable
@@ -7,6 +8,7 @@ import database
 import notify
 import ntp_utils
 import ocr_utils
+from sleep_guard import sleep_guard
 
 TARGET_URL = "https://ezweb.easycard.com.tw/Event01/JCBLoginServlet"
 BASE_URL = "https://ezweb.easycard.com.tw/Event01/JCBMainServlet"
@@ -56,6 +58,7 @@ class JCBLoginEngine:
         self.stop_requested = False
         self.current_session_id = str(uuid.uuid4())[:8]
         database.set_current_session_id(self.current_session_id)
+        sleep_guard.acquire()
         
         headless = config.get("headless", False)
         base_interval_ms = config.get("retry_interval_ms", 500)
@@ -66,6 +69,10 @@ class JCBLoginEngine:
         max_duration_seconds = config.get("max_duration_seconds", 0)
         
         self.log(f"=== 啟動 JCB 並行搶登錄任務 (Session: {self.current_session_id}) ===")
+        dry_run = config.get("dry_run", False)
+        if dry_run:
+            self.log("【🧪 演練模擬測試模式已啟動】本輪搶登將載入本機全真模擬 JCB 登錄頁面，不發送真實請求。")
+
         self.log(f"目標卡片數量: {len(selected_cards)} 張，多卡並行上限: {max_concurrent_workers} 組分頁")
         self.log(f"瀏覽器模式: {'無頭模式 (背景)' if headless else '可視化視窗 (Headed)'}")
         self.log(f"驗證碼自動 OCR 辨識: {'【已啟用 🤖】' if auto_captcha else '【已關閉 (人工輸入)】'}")
@@ -106,7 +113,7 @@ class JCBLoginEngine:
                     if self.stop_requested:
                         return
                     self.log(f"🚀 開始處理卡片 [{idx+1}/{len(selected_cards)}]: {card['name']} (尾號 {card['credit_card_suffix']})")
-                    await self._process_single_card(context, card, base_interval_ms, start_time, max_duration_seconds, auto_captcha, sprint_mode, ntp_offset)
+                    await self._process_single_card(context, card, base_interval_ms, start_time, max_duration_seconds, auto_captcha, sprint_mode, ntp_offset, dry_run)
 
             tasks = [worker(card, i) for i, card in enumerate(selected_cards)]
             await asyncio.gather(*tasks)
@@ -115,6 +122,7 @@ class JCBLoginEngine:
             self.log(f"執行過程發生異常: {str(e)}")
         finally:
             self.is_running = False
+            sleep_guard.release()
             self.log("=== 搶登錄任務全數執行完畢 / 結束 ===")
             if self.browser:
                 try:
@@ -127,12 +135,52 @@ class JCBLoginEngine:
                 except Exception:
                     pass
 
-    async def _process_single_card(self, context: BrowserContext, card: Dict[str, Any], base_interval_ms: int, start_time: float, max_duration_seconds: int, auto_captcha: bool, sprint_mode: bool, ntp_offset: float) -> bool:
+    async def _process_single_card(self, context: BrowserContext, card: Dict[str, Any], base_interval_ms: int, start_time: float, max_duration_seconds: int, auto_captcha: bool, sprint_mode: bool, ntp_offset: float, dry_run: bool = False) -> bool:
         page = await context.new_page()
         card_id = card["id"]
         card_name = card["name"]
         
         try:
+            if dry_run:
+                self.log(f"[{card_name}] 🧪 [模擬測試] 載入本機模擬 JCB 登錄網頁...")
+                mock_html = f"""
+                <!DOCTYPE html>
+                <html>
+                <head><meta charset="utf-8"><title>JCB 悠遊卡登錄 (全真演練模擬環境)</title>
+                <style>
+                    body {{ font-family: sans-serif; padding: 40px; background: #f8fafc; color: #1e293b; }}
+                    .box {{ max-width: 500px; margin: 0 auto; background: #fff; padding: 30px; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); }}
+                    input {{ width: 100%; padding: 8px; margin: 8px 0 16px; border: 1px solid #cbd5e1; border-radius: 6px; box-sizing: border-box; font-size: 14px; }}
+                    button {{ background: #2563eb; color: #fff; border: none; padding: 10px 20px; border-radius: 6px; cursor: pointer; font-size: 15px; width: 100%; }}
+                </style>
+                </head>
+                <body>
+                    <div class="box">
+                        <h2>【模擬】JCB 自動加值登錄頁面</h2>
+                        <label>信用卡前6碼:</label>
+                        <input type="text" id="txtCreditCard1" name="txtCreditCard1">
+                        <label>信用卡後4碼:</label>
+                        <input type="text" id="txtCreditCard2" name="txtCreditCard2">
+                        <label>悠遊卡 16 碼:</label>
+                        <input type="text" id="txtEasyCard1" name="txtEasyCard1">
+                        <input type="hidden" id="txtEasyCard2" name="txtEasyCard2">
+                        <input type="hidden" id="txtEasyCard3" name="txtEasyCard3">
+                        <input type="hidden" id="txtEasyCard4" name="txtEasyCard4">
+                        <label>驗證碼 (模擬):</label>
+                        <div style="display:flex; gap:10px; align-items:center;">
+                            <input type="text" id="txtValidCode" name="txtValidCode" style="margin:0;">
+                            <span id="imgCaptcha" style="background:#e2e8f0; padding:6px 12px; font-weight:bold; letter-spacing:3px;">7890</span>
+                        </div>
+                        <br>
+                        <button type="submit" id="btnSubmit" onclick="document.body.innerHTML='<div class=\\'box\\' style=\\'text-align:center;\\'><h2>登錄成功！</h2><p>恭喜您完成 2026 年度 JCB 晶片悠遊卡自動加值 10% 現金回饋活動登錄！</p><p>登錄序號：MOCK-202611209999</p></div>'; return false;">確認送出登錄</button>
+                    </div>
+                </body>
+                </html>
+                """
+                await page.set_content(mock_html)
+                await asyncio.sleep(0.5)
+                return await self._fill_and_submit(page, card, auto_captcha)
+
             is_open = False
             attempts = 0
             
@@ -280,13 +328,26 @@ class JCBLoginEngine:
             self.log(f"[{card_name}] 等候送出與登錄結果中 (最多等候 180 秒)...")
             
             start_time = time.time()
+            screenshot_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static", "screenshots")
+            os.makedirs(screenshot_dir, exist_ok=True)
+            
+            async def take_screenshot(tag: str) -> str:
+                try:
+                    filename = f"{self.current_session_id}_{card_id}_{tag}_{int(time.time())}.png"
+                    filepath = os.path.join(screenshot_dir, filename)
+                    await page.screenshot(path=filepath, full_page=True)
+                    return f"/static/screenshots/{filename}"
+                except Exception:
+                    return ""
+
             while time.time() - start_time < 180 and not self.stop_requested:
                 await asyncio.sleep(1)
                 content = await page.content()
                 
                 if "登錄成功" in content or "成功登錄" in content:
                     self.log(f"[{card_name}] ★★★ 恭喜！登錄成功！ ★★★")
-                    database.record_login(card_id, "SUCCESS", "登錄成功", self.current_session_id)
+                    shot_path = await take_screenshot("SUCCESS")
+                    database.record_login(card_id, "SUCCESS", "登錄成功", self.current_session_id, shot_path)
                     await notify.send_notification("🎉 JCB 登錄成功！", f"太棒了！卡片【{card_name}】已成功完成本月搶登錄！")
                     await asyncio.sleep(2)
                     await page.close()
@@ -294,14 +355,16 @@ class JCBLoginEngine:
                     
                 if "本月份已登錄" in content or "已登錄" in content:
                     self.log(f"[{card_name}] 系統顯示：本月份已登錄過！")
-                    database.record_login(card_id, "ALREADY_REGISTERED", "本月份已登錄過", self.current_session_id)
+                    shot_path = await take_screenshot("ALREADY")
+                    database.record_login(card_id, "ALREADY_REGISTERED", "本月份已登錄過", self.current_session_id, shot_path)
                     await asyncio.sleep(2)
                     await page.close()
                     return True
                     
                 if "已額滿" in content or "登錄期間已額滿" in content:
                     self.log(f"[{card_name}] 很抱歉，本次登錄已額滿！")
-                    database.record_login(card_id, "FULL", "本次登錄期間已額滿", self.current_session_id)
+                    shot_path = await take_screenshot("FULL")
+                    database.record_login(card_id, "FULL", "本次登錄期間已額滿", self.current_session_id, shot_path)
                     await notify.send_notification("JCB 搶登額滿提醒", f"卡片【{card_name}】搶登時系統已額滿。")
                     await page.close()
                     return False
@@ -311,7 +374,8 @@ class JCBLoginEngine:
                 return False
                 
             self.log(f"[{card_name}] 等候超時 (超過 3 分鐘)")
-            database.record_login(card_id, "FAILED", "等待驗證或送出超時", self.current_session_id)
+            shot_path = await take_screenshot("TIMEOUT")
+            database.record_login(card_id, "FAILED", "等待驗證或送出超時", self.current_session_id, shot_path)
             await page.close()
             return False
             
