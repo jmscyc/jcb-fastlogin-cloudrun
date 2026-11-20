@@ -29,7 +29,8 @@ class JCBLoginEngine:
         self.log_subscribers: List[Callable[[str], None]] = []
 
     def subscribe_logs(self, callback: Callable[[str], None]):
-        self.log_subscribers.append(callback)
+        if callback not in self.log_subscribers:
+            self.log_subscribers.append(callback)
 
     def log(self, message: str):
         timestamp = time.strftime("%H:%M:%S")
