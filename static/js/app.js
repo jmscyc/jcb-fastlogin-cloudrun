@@ -68,7 +68,7 @@ function renderCardsTable(cards) {
                 <td><span class="stat-pill">${c.year_success_count} 次</span></td>
                 <td>
                     ${statusBadge}
-                    ${c.current_session_screenshot ? `<div style="margin-top:4px;"><a href="${c.current_session_screenshot}" target="_blank" class="btn-secondary" style="display:inline-block; padding:2px 6px; font-size:11px; text-decoration:none;">📸 檢視截圖</a></div>` : ''}
+                    ${c.current_session_screenshot ? `<div style="margin-top:4px;"><button type="button" class="btn-secondary" style="display:inline-block; padding:2px 8px; font-size:11px; cursor:pointer;" onclick="openLightbox('${c.current_session_screenshot}')">📸 檢視截圖</button></div>` : ''}
                 </td>
                 <td>
                     <button class="btn-secondary" style="padding: 4px 8px; font-size: 12px; color: #ef4444;" onclick="deleteCard(${c.id}, '${escapeHtml(c.name)}')">刪除</button>
@@ -206,6 +206,8 @@ async function loadSettings() {
             document.getElementById("set-tg-token").value = data.settings.tg_bot_token || "";
             document.getElementById("set-tg-chatid").value = data.settings.tg_chat_id || "";
             document.getElementById("set-webhook").value = data.settings.webhook_url || "";
+            const proxyInput = document.getElementById("set-proxy");
+            if (proxyInput) proxyInput.value = data.settings.proxy_url || "";
         }
     } catch (err) {
         console.error("載入設定失敗:", err);
@@ -215,13 +217,15 @@ async function loadSettings() {
 async function saveSettings(e) {
     e.preventDefault();
     try {
+        const proxyInput = document.getElementById("set-proxy");
         const res = await fetch("/api/settings", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
                 tg_bot_token: document.getElementById("set-tg-token").value,
                 tg_chat_id: document.getElementById("set-tg-chatid").value,
-                webhook_url: document.getElementById("set-webhook").value
+                webhook_url: document.getElementById("set-webhook").value,
+                proxy_url: proxyInput ? proxyInput.value : ""
             })
         });
         const data = await res.json();
@@ -514,3 +518,135 @@ function parseSmartPaste(text) {
         document.getElementById("card-name").value = nameMatch[0];
     }
 }
+
+// 📸 截圖檢視燈箱 (Lightbox)
+function openLightbox(imgUrl) {
+    const modal = document.getElementById("lightbox-modal");
+    const img = document.getElementById("lightbox-img");
+    const link = document.getElementById("lightbox-link");
+    if (!modal || !img) return;
+    img.src = imgUrl;
+    if (link) link.href = imgUrl;
+    modal.classList.add("show");
+}
+
+function closeLightbox(e) {
+    if (e.target.id === "lightbox-modal") {
+        closeModal("lightbox-modal");
+    }
+}
+
+// ⭐ 智慧依優先權勾選前 N 張卡片
+async function selectTopCards(n = 2) {
+    try {
+        const res = await fetch("/api/cards");
+        const data = await res.json();
+        const cards = data.cards || [];
+        if (cards.length === 0) return alert("目前尚無卡片！");
+
+        // 依 priority 降序排序
+        cards.sort((a, b) => (b.priority || 0) - (a.priority || 0));
+
+        for (let i = 0; i < cards.length; i++) {
+            const shouldSelect = i < n;
+            await fetch(`/api/cards/${cards[i].id}/select`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ is_selected: shouldSelect })
+            });
+        }
+        await loadCards();
+        appendLog(`[卡片庫] 已自動為您勾選高優先順序前 ${Math.min(n, cards.length)} 張卡片！`);
+    } catch (err) {
+        alert("操作失敗: " + err.message);
+    }
+}
+
+// ⏳ 頂部 HUD 大螢幕即時倒數計時器
+function initHudCountdown() {
+    function getNextTargetDate() {
+        const now = new Date();
+        const year = now.getFullYear();
+        const month = now.getMonth();
+        const day = now.getDate();
+        
+        // JCB 搶登日：每月 1, 11, 21 日 09:00:00
+        const targets = [
+            new Date(year, month, 1, 9, 0, 0),
+            new Date(year, month, 11, 9, 0, 0),
+            new Date(year, month, 21, 9, 0, 0),
+            new Date(year, month + 1, 1, 9, 0, 0)
+        ];
+        for (const t of targets) {
+            if (t.getTime() > now.getTime()) return t;
+        }
+        return targets[0];
+    }
+
+    let targetDate = getNextTargetDate();
+    const targetLabel = document.getElementById("hud-target-date");
+    if (targetLabel) {
+        const m = targetDate.getMonth() + 1;
+        const d = targetDate.getDate();
+        targetLabel.textContent = `${m}月${d}日 09:00:00`;
+    }
+
+    setInterval(() => {
+        const now = new Date();
+        const diffMs = targetDate.getTime() - now.getTime();
+        
+        // 當前時鐘顯示
+        const timeEl = document.getElementById("hud-current-time");
+        if (timeEl) {
+            timeEl.textContent = now.toTimeString().split(' ')[0] + '.' + String(Math.floor(now.getMilliseconds()/100)).padStart(1, '0');
+        }
+
+        const cdEl = document.getElementById("hud-countdown");
+        const badgeEl = document.getElementById("hud-badge");
+        if (!cdEl) return;
+
+        if (diffMs <= 0) {
+            cdEl.textContent = "00 : 00 : 00 . 00";
+            cdEl.style.color = "#ef4444";
+            if (badgeEl) {
+                badgeEl.textContent = "🔥 登錄已開搶！";
+                badgeEl.style.background = "#dc2626";
+            }
+            targetDate = getNextTargetDate();
+            return;
+        }
+
+        const hours = Math.floor(diffMs / 3600000);
+        const mins = Math.floor((diffMs % 3600000) / 60000);
+        const secs = Math.floor((diffMs % 60000) / 1000);
+        const centis = Math.floor((diffMs % 1000) / 10);
+
+        const strH = String(hours).padStart(2, '0');
+        const strM = String(mins).padStart(2, '0');
+        const strS = String(secs).padStart(2, '0');
+        const strC = String(centis).padStart(2, '0');
+
+        cdEl.textContent = `${strH} : ${strM} : ${strS} . ${strC}`;
+
+        // 倒數 30 秒警告與 5 秒衝刺動態視覺
+        if (diffMs < 5000) {
+            cdEl.style.color = "#f43f5e";
+            if (badgeEl) {
+                badgeEl.textContent = "⚡ 極速衝刺開跑中！";
+                badgeEl.style.background = "#e11d48";
+            }
+        } else if (diffMs < 30000) {
+            cdEl.style.color = "#fbbf24";
+            if (badgeEl) {
+                badgeEl.textContent = "⚠️ 即將到達搶登時間";
+                badgeEl.style.background = "#d97706";
+            }
+        } else {
+            cdEl.style.color = "#38bdf8";
+        }
+    }, 50);
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+    initHudCountdown();
+});
