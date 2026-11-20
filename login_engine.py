@@ -57,10 +57,15 @@ class JCBLoginEngine:
         headless = config.get("headless", False)
         retry_interval_ms = config.get("retry_interval_ms", 500)
         max_concurrent_workers = config.get("max_concurrent_workers", 2)
+        max_duration_seconds = config.get("max_duration_seconds", 0) # 0 代表不限時間，或指定秒數安全退場
         
         self.log(f"=== 啟動 JCB 並行搶登錄任務 (Session: {self.current_session_id}) ===")
         self.log(f"目標卡片數量: {len(selected_cards)} 張，多卡並行上限: {max_concurrent_workers} 組分頁")
         self.log(f"模式: {'無頭模式 (背景)' if headless else '可視化視窗 (Headed)'}")
+        if max_duration_seconds > 0:
+            self.log(f"最大監控時間限制: {max_duration_seconds} 秒")
+        
+        start_time = time.time()
         
         try:
             self.playwright = await async_playwright().start()
@@ -87,7 +92,7 @@ class JCBLoginEngine:
                     if self.stop_requested:
                         return
                     self.log(f"🚀 開始處理卡片 [{idx+1}/{len(selected_cards)}]: {card['name']} (尾號 {card['credit_card_suffix']})")
-                    await self._process_single_card(context, card, retry_interval_ms)
+                    await self._process_single_card(context, card, retry_interval_ms, start_time, max_duration_seconds)
 
             tasks = [worker(card, i) for i, card in enumerate(selected_cards)]
             await asyncio.gather(*tasks)
@@ -108,7 +113,7 @@ class JCBLoginEngine:
                 except Exception:
                     pass
 
-    async def _process_single_card(self, context: BrowserContext, card: Dict[str, Any], retry_interval_ms: int) -> bool:
+    async def _process_single_card(self, context: BrowserContext, card: Dict[str, Any], retry_interval_ms: int, start_time: float, max_duration_seconds: int) -> bool:
         page = await context.new_page()
         card_id = card["id"]
         card_name = card["name"]
@@ -118,6 +123,11 @@ class JCBLoginEngine:
             attempts = 0
             
             while not is_open and not self.stop_requested:
+                # 檢查是否超過最大限制秒數
+                if max_duration_seconds > 0 and (time.time() - start_time) > max_duration_seconds:
+                    self.log(f"[{card_name}] 已達最大監控時間 ({max_duration_seconds} 秒)，正常退出探測迴圈。")
+                    break
+                    
                 attempts += 1
                 try:
                     self.log(f"[{card_name}] 第 {attempts} 次探測登錄網頁...")
@@ -153,7 +163,7 @@ class JCBLoginEngine:
                     self.log(f"[{card_name}] 刷新錯誤: {str(e)[:50]}，重試中...")
                     await asyncio.sleep(retry_interval_ms / 1000.0)
 
-            if self.stop_requested:
+            if self.stop_requested or not is_open:
                 await page.close()
                 return False
 

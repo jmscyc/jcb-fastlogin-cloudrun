@@ -22,6 +22,7 @@ async def main():
     parser = argparse.ArgumentParser(description="JCB FastLogin CLI Runner for GitHub Actions")
     parser.add_argument("--interval", type=int, default=500, help="Retry interval in ms")
     parser.add_argument("--workers", type=int, default=2, help="Max concurrent workers")
+    parser.add_argument("--timeout", type=int, default=600, help="Max duration in seconds")
     args = parser.parse_args()
 
     print("=== [GitHub Actions 雲端自動搶登任務啟動] ===")
@@ -67,7 +68,8 @@ async def main():
     config = {
         "headless": True,
         "retry_interval_ms": args.interval,
-        "max_concurrent_workers": args.workers
+        "max_concurrent_workers": args.workers,
+        "max_duration_seconds": args.timeout
     }
 
     await notify.send_notification("🚀 JCB 雲端搶登任務啟動", f"GitHub Actions 雲端已開始執行搶登，共 {len(selected_cards)} 張卡片正在監測中！")
