@@ -11,6 +11,7 @@ from pydantic import BaseModel
 import database
 import notify
 from login_engine import engine
+from sleep_guard import sleep_guard
 
 app = FastAPI(title="JCB 悠遊卡自動搶登錄系統 Pro")
 
@@ -173,14 +174,18 @@ async def start_task(config: TaskStartRequest):
             
             if delay_seconds > 0:
                 engine.log(f"[預約排程] 已設定於 {config.scheduled_time} (約 {int(delay_seconds)} 秒後) 自動啟動！")
+                sleep_guard.acquire()
                 
                 async def scheduled_runner():
-                    await asyncio.sleep(delay_seconds)
-                    engine.log("[預約排程] 時間已到，立即喚醒執行引擎！")
-                    await engine.run_task(selected_cards, config.dict())
+                    try:
+                        await asyncio.sleep(delay_seconds)
+                        engine.log("[預約排程] 時間已到，立即喚醒執行引擎！")
+                        await engine.run_task(selected_cards, config.dict())
+                    finally:
+                        sleep_guard.release()
                     
                 scheduled_task_handle = asyncio.create_task(scheduled_runner())
-                return {"status": "ok", "message": f"已預約排程於 {config.scheduled_time} 自動開跑"}
+                return {"status": "ok", "message": f"已預約排程於 {config.scheduled_time} 自動開跑 (已啟用防休眠鎖)"}
             else:
                 engine.log("[預約排程] 指定時間已過，立即啟動任務！")
         except ValueError:
@@ -193,6 +198,7 @@ async def start_task(config: TaskStartRequest):
 @app.post("/api/task/stop")
 def stop_task():
     global scheduled_task_handle
+    sleep_guard.release()
     if scheduled_task_handle and not scheduled_task_handle.done():
         scheduled_task_handle.cancel()
         engine.log("[預約排程] 已取消預約定時排程。")

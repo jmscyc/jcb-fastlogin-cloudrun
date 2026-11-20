@@ -255,6 +255,18 @@ class JCBLoginEngine:
         suffix = card["credit_card_suffix"]
         easycard = card["easycard_number"]
         
+        last_dialog_msg = []
+        async def handle_dialog(dialog):
+            msg = dialog.message
+            last_dialog_msg.append(msg)
+            self.log(f"[{card_name}] 收到網頁彈窗對話框: {msg}")
+            try:
+                await dialog.accept()
+            except Exception:
+                pass
+        
+        page.on("dialog", handle_dialog)
+        
         self.log(f"[{card_name}] 自動注入卡號資訊...")
         
         try:
@@ -343,8 +355,9 @@ class JCBLoginEngine:
             while time.time() - start_time < 180 and not self.stop_requested:
                 await asyncio.sleep(1)
                 content = await page.content()
+                combined_text = content + " " + " ".join(last_dialog_msg)
                 
-                if "登錄成功" in content or "成功登錄" in content:
+                if "登錄成功" in combined_text or "成功登錄" in combined_text:
                     self.log(f"[{card_name}] ★★★ 恭喜！登錄成功！ ★★★")
                     shot_path = await take_screenshot("SUCCESS")
                     database.record_login(card_id, "SUCCESS", "登錄成功", self.current_session_id, shot_path)
@@ -353,7 +366,7 @@ class JCBLoginEngine:
                     await page.close()
                     return True
                     
-                if "本月份已登錄" in content or "已登錄" in content:
+                if "本月份已登錄" in combined_text or "已登錄" in combined_text:
                     self.log(f"[{card_name}] 系統顯示：本月份已登錄過！")
                     shot_path = await take_screenshot("ALREADY")
                     database.record_login(card_id, "ALREADY_REGISTERED", "本月份已登錄過", self.current_session_id, shot_path)
@@ -361,7 +374,7 @@ class JCBLoginEngine:
                     await page.close()
                     return True
                     
-                if "已額滿" in content or "登錄期間已額滿" in content:
+                if "已額滿" in combined_text or "登錄期間已額滿" in combined_text:
                     self.log(f"[{card_name}] 很抱歉，本次登錄已額滿！")
                     shot_path = await take_screenshot("FULL")
                     database.record_login(card_id, "FULL", "本次登錄期間已額滿", self.current_session_id, shot_path)
