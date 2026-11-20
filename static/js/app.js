@@ -378,3 +378,67 @@ function escapeHtml(text) {
         }[m];
     });
 }
+
+// 📅 一鍵帶入下個搶登日 (每月 1, 11, 21 日 08:59:55)
+function fillNextSchedule() {
+    const now = new Date();
+    const candidateDays = [1, 11, 21];
+    let target = null;
+    
+    for (let day of candidateDays) {
+        const d = new Date(now.getFullYear(), now.getMonth(), day, 8, 59, 55);
+        if (d > now) {
+            target = d;
+            break;
+        }
+    }
+    
+    // 若本月已過 21 號，則指向下個月 1 號
+    if (!target) {
+        target = new Date(now.getFullYear(), now.getMonth() + 1, 1, 8, 59, 55);
+    }
+    
+    const pad = (n) => String(n).padStart(2, "0");
+    const formatted = `${target.getFullYear()}-${pad(target.getMonth() + 1)}-${pad(target.getDate())} ${pad(target.getHours())}:${pad(target.getMinutes())}:${pad(target.getSeconds())}`;
+    
+    const scheduleInput = document.getElementById("cfg-schedule");
+    if (scheduleInput) {
+        scheduleInput.value = formatted;
+        appendLog(`[系統] 已自動設定下個搶登目標時刻: ${formatted}`);
+    }
+}
+
+// ⚡ 智慧快速貼上自動解析卡號
+function parseSmartPaste(text) {
+    if (!text || text.trim().length < 6) return;
+    
+    // 1. 匹配悠遊卡 16 碼 (連續 16 位數字或以空格分隔)
+    const easyMatch = text.match(/\b\d{16}\b/) || text.match(/\b\d{4}\s\d{4}\s\d{4}\s\d{4}\b/);
+    if (easyMatch) {
+        const rawEasy = easyMatch[0].replace(/\s/g, "");
+        const formatted = rawEasy.replace(/(\d{4})(?=\d)/g, "$1 ");
+        document.getElementById("card-easycard").value = formatted;
+    }
+    
+    // 2. 匹配信用卡卡號 (若有 16 碼 JCB: 35 開頭)
+    const jcbMatch = text.match(/\b35\d{14}\b/) || text.match(/\b35\d{2}[-\s]?\d{4}[-\s]?\d{4}[-\s]?\d{4}\b/);
+    if (jcbMatch) {
+        const rawCard = jcbMatch[0].replace(/[-\s]/g, "");
+        document.getElementById("card-prefix").value = rawCard.substring(0, 6);
+        document.getElementById("card-suffix").value = rawCard.substring(12, 16);
+    } else {
+        // 分別嘗試抓 6 碼前綴 (35xxxx)
+        const prefixMatch = text.match(/\b35\d{4}\b/);
+        if (prefixMatch) document.getElementById("card-prefix").value = prefixMatch[0];
+        
+        // 嘗試抓後 4 碼 (例如: 尾號 1234 或末四碼 1234)
+        const suffixMatch = text.match(/(?:末|尾|後|碼)[\s:：]*(\d{4})/i) || text.match(/[-*]{2,}(\d{4})/);
+        if (suffixMatch) document.getElementById("card-suffix").value = suffixMatch[1];
+    }
+    
+    // 3. 嘗試猜測卡名 (排除數字與特定符號)
+    const nameMatch = text.match(/(富邦|玉山|聯邦|中信|國泰|台新|吉鶴|熊本熊|魔BUY|現金回饋)[a-zA-Z0-9\u4e00-\u9fa5]*/);
+    if (nameMatch && !document.getElementById("card-name").value) {
+        document.getElementById("card-name").value = nameMatch[0];
+    }
+}
