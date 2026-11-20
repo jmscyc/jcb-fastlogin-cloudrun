@@ -6,6 +6,18 @@ import database
 import notify
 from login_engine import engine
 
+# 預設卡片範本（若未提供 Secret 時自動使用此處設定）
+DEFAULT_CARDS = [
+    {
+        "name": "富邦JCB",
+        "credit_card_prefix": "356890",
+        "credit_card_suffix": "1234",
+        "easycard_number": "0123456789012345",
+        "is_selected": 1,
+        "priority": 10
+    }
+]
+
 async def main():
     parser = argparse.ArgumentParser(description="JCB FastLogin CLI Runner for GitHub Actions")
     parser.add_argument("--interval", type=int, default=500, help="Retry interval in ms")
@@ -38,10 +50,13 @@ async def main():
     cards = database.get_cards()
     selected_cards = [c for c in cards if c["is_selected"] == 1]
 
+    # 若資料庫無卡片，自動載入預設卡片庫
     if not selected_cards:
-        print("[ERROR] 目前卡片庫中沒有任何選取的卡片！")
-        print("💡 請在 GitHub 儲存庫 Settings -> Secrets and variables -> Actions 新增名為 JCB_CARDS_JSON 的 Secret 填入卡片 JSON")
-        sys.exit(1)
+        print("[INFO] 資料庫為空，自動載入預設卡片設定...")
+        for c in DEFAULT_CARDS:
+            database.add_card(c["name"], c["credit_card_prefix"], c["credit_card_suffix"], c["easycard_number"], c.get("priority", 0))
+        cards = database.get_cards()
+        selected_cards = [c for c in cards if c["is_selected"] == 1]
 
     print(f"[INFO] 本次即將搶登之卡片共 {len(selected_cards)} 張：")
     for c in selected_cards:
