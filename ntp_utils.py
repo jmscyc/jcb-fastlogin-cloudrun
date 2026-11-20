@@ -48,7 +48,7 @@ def get_sprint_interval(now_timestamp: float, target_hour: int = 9, target_minut
     - 剩餘 < 5 秒: 極限毫秒衝刺 (150ms)
     """
     lt = time.localtime(now_timestamp)
-    target_today = time.mktime((lt.tm_year, lt.tm_month, lt.tm_mday, target_hour, target_minute, 0, 0, 0, -1))
+    target_today = time.mktime((lt.tm_year, lt.tm_mon, lt.tm_mday, target_hour, target_minute, 0, 0, 0, -1))
     diff = target_today - now_timestamp
     
     if diff < -15:
