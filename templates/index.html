@@ -25,6 +25,33 @@
             </div>
         </header>
 
+        <!-- 頂部即時倒數與精準時鐘 HUD (大螢幕儀表) -->
+        <section class="card-panel countdown-hud-section" style="background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%); color: #fff; padding: 20px 24px; border-radius: 12px; box-shadow: 0 8px 20px rgba(0,0,0,0.15); border: 1px solid #334155;">
+            <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:16px;">
+                <div>
+                    <div style="font-size:13px; color:#94a3b8; font-weight:500; letter-spacing:1px; text-transform:uppercase;">
+                        🎯 距離下次官方搶登 (<span id="hud-target-date" style="color:#38bdf8;">每月1/11/21日 09:00:00</span>)
+                    </div>
+                    <div id="hud-countdown" style="font-size: 38px; font-weight: 800; font-family: monospace; letter-spacing: 2px; color: #38bdf8; margin: 4px 0;">
+                        -- : -- : -- . --
+                    </div>
+                    <div style="font-size:12px; color:#cbd5e1;">
+                        ⏱️ 當前國家標準時間 (NTP校準): <strong id="hud-current-time" style="color:#a7f3d0; font-family:monospace;">--:--:--</strong>
+                    </div>
+                </div>
+                <div style="text-align:right;">
+                    <div id="hud-badge" class="badge" style="background:#0369a1; color:#e0f2fe; font-size:12px; padding:6px 12px; font-weight:700;">
+                        🚀 倒數監控中
+                    </div>
+                    <div style="margin-top:8px;">
+                        <button type="button" class="btn-secondary" style="background:rgba(255,255,255,0.1); border:1px solid rgba(255,255,255,0.2); color:#fff; font-size:12px; padding:5px 12px;" onclick="fillNextSchedule()">
+                            📅 一鍵填入下梯次預約
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </section>
+
         <!-- 搶登控制面板 -->
         <section class="card-panel control-section">
             <div class="panel-header">
@@ -110,6 +137,7 @@
                 </div>
                 <div class="table-actions">
                     <button class="btn-outline" onclick="openAddModal()">＋ 新增卡片</button>
+                    <button class="btn-secondary" onclick="selectTopCards(2)">⭐ 勾選前2張(高優先)</button>
                     <button class="btn-secondary" onclick="exportCards()">📤 備份匯出</button>
                     <button class="btn-secondary" onclick="openImportModal()">📥 批次匯入</button>
                     <div class="dropdown">
@@ -225,12 +253,34 @@
                         <label>自訂 Webhook URL (支援 Discord / Slack / 外部轉發)</label>
                         <input type="text" id="set-webhook" placeholder="https://discord.com/api/webhooks/...">
                     </div>
+                    <div class="form-group">
+                        <label>🛡️ 防封鎖 HTTP Proxy 代理 (可選)</label>
+                        <input type="text" id="set-proxy" placeholder="例如 http://127.0.0.1:7890 或 http://user:pwd@ip:port">
+                        <span class="hint" style="font-size:11px; color:#64748b;">遇連線壅塞或頻繁探測時，自動透過此 Proxy 轉發，避免單一 IP 受限</span>
+                    </div>
                     <div class="modal-footer">
                         <button type="button" class="btn-secondary" onclick="testNotify()">🔔 測試推播</button>
                         <button type="button" class="btn-secondary" onclick="closeModal('settings-modal')">取消</button>
                         <button type="submit" class="btn-primary">儲存設定</button>
                     </div>
                 </form>
+            </div>
+        </div>
+
+        <!-- 📸 截圖檢視燈箱 Modal (Lightbox) -->
+        <div id="lightbox-modal" class="modal" onclick="closeLightbox(event)">
+            <div class="modal-content" style="max-width: 800px; padding: 16px; background:#0f172a; border:1px solid #334155; text-align:center;">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; color:#fff;">
+                    <h3 style="font-size:16px;">📸 搶登成果與官方回應截圖存證</h3>
+                    <span class="close" style="color:#fff; font-size:24px; cursor:pointer;" onclick="closeModal('lightbox-modal')">&times;</span>
+                </div>
+                <div style="max-height: 75vh; overflow-y: auto; border-radius: 8px; background:#1e293b; padding:8px;">
+                    <img id="lightbox-img" src="" alt="搶登截圖" style="max-width:100%; border-radius:6px; box-shadow:0 4px 12px rgba(0,0,0,0.5);">
+                </div>
+                <div style="margin-top:12px; text-align:right;">
+                    <a id="lightbox-link" href="" target="_blank" class="btn-secondary" style="font-size:12px; text-decoration:none; display:inline-block;">在新分頁打開原始大圖 ↗</a>
+                    <button type="button" class="btn-secondary" style="font-size:12px; margin-left:8px;" onclick="closeModal('lightbox-modal')">關閉</button>
+                </div>
             </div>
         </div>
 
