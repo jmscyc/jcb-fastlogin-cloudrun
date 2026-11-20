@@ -65,7 +65,7 @@ async def main():
     for c in selected_cards:
         print(f" - {c['name']} (尾號 {c['credit_card_suffix']})")
 
-    engine.subscribe_logs(lambda msg: print(msg, flush=True))
+    # engine.log 內部已包含 print(formatted)，不需重複 subscribe_logs(print)
 
     config = {
         "headless": True,
