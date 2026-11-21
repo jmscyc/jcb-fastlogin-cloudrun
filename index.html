@@ -4,6 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>JCB 悠遊卡搶登 - 雲端卡片管理與狀態控制台</title>
+    <!-- QR Code 生成庫 -->
+    <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
     <style>
         :root {
             --primary: #4f46e5;
@@ -91,7 +93,7 @@
             margin-bottom: 5px;
             font-weight: 500;
         }
-        input[type="text"], input[type="number"], input[type="time"], select {
+        input[type="text"], input[type="password"], input[type="number"], input[type="time"], select {
             width: 100%;
             background-color: #0f172a;
             border: 1px solid var(--border);
@@ -109,6 +111,7 @@
             display: flex;
             gap: 10px;
             margin-top: 10px;
+            flex-wrap: wrap;
         }
         button {
             cursor: pointer;
@@ -131,6 +134,8 @@
         .btn-danger:hover { background-color: #b91c1c; }
         .btn-secondary { background-color: #334155; color: #f1f5f9; }
         .btn-secondary:hover { background-color: #475569; }
+        .btn-sync { background: linear-gradient(135deg, #0284c7, #2563eb); color: #fff; }
+        .btn-sync:hover { background: linear-gradient(135deg, #0369a1, #1d4ed8); }
         .btn-sm-danger {
             background-color: transparent;
             color: var(--danger);
@@ -222,6 +227,35 @@
             white-space: pre-wrap;
             margin-bottom: 12px;
         }
+
+        /* Modal 彈跳視窗 */
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0, 0, 0, 0.75);
+            z-index: 1000;
+            align-items: center;
+            justify-content: center;
+            padding: 15px;
+        }
+        .modal-overlay.active { display: flex; }
+        .modal-box {
+            background: var(--card-bg);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            width: 100%;
+            max-width: 480px;
+            padding: 24px;
+            text-align: center;
+        }
+        .qr-canvas-box {
+            background: #fff;
+            padding: 15px;
+            border-radius: 8px;
+            display: inline-block;
+            margin: 15px 0;
+        }
     </style>
 </head>
 <body>
@@ -229,11 +263,45 @@
 <div class="container">
     <header>
         <h1>⚡ JCB 雲端控制台 Pro</h1>
-        <p>自訂重試截止時間・卡片狀態即時監控・隨時手動開關任務</p>
+        <p>自訂重試截止時間・跨設備秒同步・Google Sheets 權限連動</p>
     </header>
 
     <div class="banner">
-        💡 <strong>功能說明</strong>：您可以在此自由設定<strong>「重試截止時間（如重試至 09:30:00）」</strong>，直接監控與更新每張卡片的狀態（<span style="color:#fbbf24;">嘗試中</span>、<span style="color:#34d399;">已成功</span>、<span style="color:#f87171;">作業已停止</span>），並點擊下方按鈕隨時啟動或停止雲端搶登！
+        💡 <strong>跨設備同步升級</strong>：資料儲存在您的專屬 Google 試算表！更支援<strong>「📷 QR Code 掃碼綁定」</strong>或<strong>「🔗 一鍵專屬同步連結」</strong>，換手機或平板免手動輸入網址，點開即自動連線！
+    </div>
+
+    <!-- ☁️ 跨設備 Google Sheet 權限同步中心 -->
+    <div class="card" style="border: 1px solid #0284c7; background: linear-gradient(180deg, #1e293b, #0c1c2e);">
+        <h2>
+            <span style="display:flex; align-items:center; gap:8px;">
+                <span>☁️</span>
+                <span>跨設備 Google 試算表同步中心</span>
+            </span>
+            <span id="syncStatusBadge" style="font-size:0.75rem; background:#0284c7; color:#fff; padding:2px 8px; border-radius:4px;">未連線</span>
+        </h2>
+        <div class="form-group">
+            <label>Google Apps Script Webhook 網址 (您的試算表同步 API)：</label>
+            <input type="text" id="gasWebhookUrl" placeholder="https://script.google.com/macros/s/.../exec">
+        </div>
+        <div class="control-panel" style="margin-bottom:10px;">
+            <div class="form-group">
+                <label>試算表同步存取金鑰 (預設: 888)：</label>
+                <input type="text" id="gasSyncKey" value="888" placeholder="888">
+            </div>
+            <div class="form-group">
+                <label>快速備份與載入：</label>
+                <div style="display:flex; gap:8px;">
+                    <button class="btn-sync" style="flex:1;" onclick="fetchFromGoogleSheet()">⬇️ 從 Sheet 讀取</button>
+                    <button class="btn-primary" style="flex:1;" onclick="saveToGoogleSheet()">⬆️ 存入 Sheet</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 專屬換機神器按鈕 -->
+        <div class="btn-group" style="border-top:1px solid #334155; padding-top:12px;">
+            <button class="btn-secondary" style="flex:1;" onclick="copyDirectShareUrl()">🔗 複製一鍵直連綁定網址 (傳 LINE)</button>
+            <button class="btn-secondary" style="flex:1;" onclick="showQrCodeModal()">📷 顯示跨設備同步 QR Code</button>
+        </div>
     </div>
 
     <!-- 搶登排程與截止時間控制面板 -->
@@ -316,10 +384,59 @@
     </div>
 </div>
 
+<!-- QR Code Modal 彈出視窗 -->
+<div class="modal-overlay" id="qrModal">
+    <div class="modal-box">
+        <h3 style="margin-bottom:8px; color:#fff;">📷 跨設備掃碼自動同步</h3>
+        <p style="font-size:0.85rem; color:var(--text-muted);">請用新手機、iPad 或其他設備的相機掃描此 QR Code，打開後將自動套用您的 Google 試算表與同步金鑰！</p>
+        <div class="qr-canvas-box">
+            <canvas id="qrCanvas"></canvas>
+        </div>
+        <div>
+            <button class="btn-secondary" style="width:100%;" onclick="closeQrCodeModal()">關閉視窗</button>
+        </div>
+    </div>
+</div>
+
 <script>
     const STORAGE_KEY = "jcb_cloud_cards_pro_v2";
+    const GAS_URL_KEY = "jcb_gas_webhook_url";
+    const GAS_KEY_KEY = "jcb_gas_sync_key";
 
     let cards = [];
+
+    // 初始化與 URL 參數自動解析 (一鍵直連免設定)
+    function initApp() {
+        const urlParams = new URLSearchParams(window.location.search);
+        const syncUrlParam = urlParams.get("sync_url");
+        const syncKeyParam = urlParams.get("sync_key") || urlParams.get("key");
+
+        if (syncUrlParam) {
+            localStorage.setItem(GAS_URL_KEY, decodeURIComponent(syncUrlParam));
+            if (syncKeyParam) localStorage.setItem(GAS_KEY_KEY, decodeURIComponent(syncKeyParam));
+            alert("🎉 已自動為您連線綁定 Google 試算表！\n即將自動從雲端同步卡片資料...");
+            // 清理網址參數，防止畫面雜亂
+            window.history.replaceState({}, document.title, window.location.pathname);
+        }
+
+        // 載入儲存的 Webhook 設定
+        const savedUrl = localStorage.getItem(GAS_URL_KEY) || "";
+        const savedKey = localStorage.getItem(GAS_KEY_KEY) || "888";
+        document.getElementById("gasWebhookUrl").value = savedUrl;
+        document.getElementById("gasSyncKey").value = savedKey;
+
+        if (savedUrl) {
+            document.getElementById("syncStatusBadge").innerText = "已設定 Google 試算表";
+            document.getElementById("syncStatusBadge").style.background = "#059669";
+        }
+
+        loadCards();
+
+        // 若有設定 Webhook 且剛綁定，自動讀取試算表
+        if (savedUrl && syncUrlParam) {
+            fetchFromGoogleSheet(true);
+        }
+    }
 
     function loadCards() {
         const saved = localStorage.getItem(STORAGE_KEY);
@@ -335,17 +452,7 @@
                     easycard_number: "0123456789012345",
                     is_selected: 1,
                     priority: 10,
-                    status: "嘗試中"  // 嘗試中 | 已成功 | 作業已停止
-                },
-                {
-                    id: 2,
-                    name: "備援聯邦JCB",
-                    credit_card_prefix: "356801",
-                    credit_card_suffix: "5678",
-                    easycard_number: "0987654321098765",
-                    is_selected: 1,
-                    priority: 5,
-                    status: "作業已停止"
+                    status: "嘗試中"
                 }
             ];
             saveCards();
@@ -367,23 +474,20 @@
         previewEl.innerText = JSON.stringify(cards, null, 2);
 
         if (cards.length === 0) {
-            listEl.innerHTML = `<p style="color:var(--text-muted); text-align:center; padding:20px;">目前尚無卡片，請在上方新增卡片。</p>`;
+            listEl.innerHTML = `<p style="color:var(--text-muted); text-align:center; padding:20px;">目前尚無卡片，請在上方新增卡片或從 Google 試算表載入。</p>`;
             return;
         }
 
         listEl.innerHTML = cards.map((c, idx) => {
             const st = c.status || "嘗試中";
             let badgeClass = "status-running";
-            let icon = "⏳";
+            let icon = "⚡";
             if (st === "已成功") {
                 badgeClass = "status-success";
                 icon = "✓";
             } else if (st === "作業已停止") {
                 badgeClass = "status-stopped";
                 icon = "🛑";
-            } else if (st === "嘗試中") {
-                badgeClass = "status-running";
-                icon = "⚡";
             }
 
             return `
@@ -477,6 +581,94 @@
         }
     }
 
+    // Google Sheets API 同步邏輯
+    async function fetchFromGoogleSheet(silent = false) {
+        const url = document.getElementById("gasWebhookUrl").value.trim();
+        const key = document.getElementById("gasSyncKey").value.trim() || "888";
+        if (!url) return alert("請先填入 Google Apps Script 網址！");
+
+        localStorage.setItem(GAS_URL_KEY, url);
+        localStorage.setItem(GAS_KEY_KEY, key);
+
+        try {
+            const fetchUrl = `${url}?action=get_cards&key=${encodeURIComponent(key)}`;
+            const res = await fetch(fetchUrl);
+            const data = await res.json();
+            if (data.status === "ok" && Array.isArray(data.cards)) {
+                cards = data.cards;
+                saveCards();
+                if (!silent) alert(`✓ 成功從 Google 試算表同步載入 ${cards.length} 張卡片！`);
+            } else {
+                alert("試算表讀取回應異常: " + (data.message || JSON.stringify(data)));
+            }
+        } catch (err) {
+            alert("讀取 Google 試算表失敗，請檢查網址或連線: " + err.message);
+        }
+    }
+
+    async function saveToGoogleSheet() {
+        const url = document.getElementById("gasWebhookUrl").value.trim();
+        const key = document.getElementById("gasSyncKey").value.trim() || "888";
+        if (!url) return alert("請先填入 Google Apps Script 網址！");
+
+        localStorage.setItem(GAS_URL_KEY, url);
+        localStorage.setItem(GAS_KEY_KEY, key);
+
+        try {
+            const res = await fetch(url, {
+                method: "POST",
+                headers: { "Content-Type": "text/plain;charset=utf-8" },
+                body: JSON.stringify({
+                    action: "save_cards",
+                    key: key,
+                    cards: cards
+                })
+            });
+            const data = await res.json();
+            if (data.status === "ok") {
+                alert("✓ 成功將卡片備份儲存至您的 Google 試算表！\n其他裝置開啟即可隨時讀取！");
+            } else {
+                alert("儲存試算表失敗: " + (data.message || JSON.stringify(data)));
+            }
+        } catch (err) {
+            alert("連線 Google 試算表失敗: " + err.message);
+        }
+    }
+
+    // 換機神器：一鍵直連網址生成與複製
+    function getDirectShareUrl() {
+        const url = document.getElementById("gasWebhookUrl").value.trim();
+        const key = document.getElementById("gasSyncKey").value.trim() || "888";
+        if (!url) return "";
+        const base = window.location.origin + window.location.pathname;
+        return `${base}?sync_url=${encodeURIComponent(url)}&sync_key=${encodeURIComponent(key)}`;
+    }
+
+    function copyDirectShareUrl() {
+        const shareUrl = getDirectShareUrl();
+        if (!shareUrl) return alert("請先輸入您的 Google Apps Script 網址，才能產生專屬同步連結！");
+        navigator.clipboard.writeText(shareUrl).then(() => {
+            alert("✓ 已複製專屬一鍵直連同步網址！\n\n換手機或在 iPad 貼在瀏覽器或 LINE 打開，就會自動連線您的試算表，零手動輸入！");
+        }).catch(() => {
+            prompt("請手動複製此專屬同步網址：", shareUrl);
+        });
+    }
+
+    // 換機神器：QR Code 生成
+    function showQrCodeModal() {
+        const shareUrl = getDirectShareUrl();
+        if (!shareUrl) return alert("請先輸入您的 Google Apps Script 網址，才能產生專屬 QR Code！");
+        document.getElementById("qrModal").classList.add("active");
+        const canvas = document.getElementById("qrCanvas");
+        QRCode.toCanvas(canvas, shareUrl, { width: 220, margin: 1 }, function (error) {
+            if (error) console.error(error);
+        });
+    }
+
+    function closeQrCodeModal() {
+        document.getElementById("qrModal").classList.remove("active");
+    }
+
     function copyJson() {
         const text = JSON.stringify(cards, null, 2);
         navigator.clipboard.writeText(text).then(() => {
@@ -506,7 +698,7 @@
         }
     }
 
-    window.onload = loadCards;
+    window.onload = initApp;
 </script>
 
 </body>
