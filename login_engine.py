@@ -390,34 +390,43 @@ class JCBLoginEngine:
                 self.log(f"[{card_name}] 🧪 [模擬測試] 載入本機模擬 JCB 登錄網頁...")
                 mock_html = f"""
                 <!DOCTYPE html>
-                <html>
-                <head><meta charset="utf-8"><title>JCB 悠遊卡登錄 (全真演練模擬環境)</title>
+                <html xmlns="http://www.w3.org/1999/xhtml">
+                <head><meta charset="utf-8"><title>獨享禮遇JCB晶緻等級以上（含極緻）悠遊卡自動加值10%現金回饋優惠活動</title>
                 <style>
-                    body {{ font-family: sans-serif; padding: 40px; background: #f8fafc; color: #1e293b; }}
-                    .box {{ max-width: 500px; margin: 0 auto; background: #fff; padding: 30px; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); }}
-                    input {{ width: 100%; padding: 8px; margin: 8px 0 16px; border: 1px solid #cbd5e1; border-radius: 6px; box-sizing: border-box; font-size: 14px; }}
-                    button {{ background: #2563eb; color: #fff; border: none; padding: 10px 20px; border-radius: 6px; cursor: pointer; font-size: 15px; width: 100%; }}
+                    body {{ font-family: sans-serif; padding: 20px; background: #f8fafc; color: #1e293b; }}
+                    .box {{ max-width: 580px; margin: 0 auto; background: #fff; padding: 25px; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); }}
+                    .row {{ display: flex; gap: 8px; align-items: center; margin-bottom: 12px; }}
+                    input.text_field {{ padding: 8px; border: 1px solid #cbd5e1; border-radius: 4px; text-align: center; font-size: 15px; font-weight: bold; width: 60px; }}
+                    #send {{ display: none; background: #2563eb; color: #fff; text-decoration: none; padding: 10px 20px; border-radius: 6px; text-align: center; font-weight: bold; cursor: pointer; }}
                 </style>
                 </head>
                 <body>
                     <div class="box">
-                        <h2>【模擬】JCB 自動加值登錄頁面</h2>
-                        <label>信用卡前6碼:</label>
-                        <input type="text" id="txtCreditCard1" name="txtCreditCard1">
-                        <label>信用卡後4碼:</label>
-                        <input type="text" id="txtCreditCard2" name="txtCreditCard2">
-                        <label>悠遊卡 16 碼:</label>
-                        <input type="text" id="txtEasyCard1" name="txtEasyCard1">
-                        <input type="hidden" id="txtEasyCard2" name="txtEasyCard2">
-                        <input type="hidden" id="txtEasyCard3" name="txtEasyCard3">
-                        <input type="hidden" id="txtEasyCard4" name="txtEasyCard4">
-                        <label>驗證碼 (模擬):</label>
-                        <div style="display:flex; gap:10px; align-items:center;">
-                            <input type="text" id="txtValidCode" name="txtValidCode" style="margin:0;">
-                            <span id="imgCaptcha" style="background:#e2e8f0; padding:6px 12px; font-weight:bold; letter-spacing:3px;">7890</span>
-                        </div>
-                        <br>
-                        <button type="submit" id="btnSubmit" onclick="document.body.innerHTML='<div class=\\'box\\' style=\\'text-align:center;\\'><h2>登錄成功！</h2><p>恭喜您完成 2026 年度 JCB 晶片悠遊卡自動加值 10% 現金回饋活動登錄！</p><p>登錄序號：MOCK-202611209999</p></div>'; return false;">確認送出登錄</button>
+                        <h3>獨享禮遇JCB悠遊卡自動加值10%現金回饋 (官方全真演練)</h3>
+                        <form id="form1" name="form1" onsubmit="return false;">
+                            <p>
+                                <input type="checkbox" id="accept" name="accept" onchange="document.getElementById('input_panel').style.display = this.checked ? 'block' : 'none'; document.getElementById('send').style.display = this.checked ? 'block' : 'none';">
+                                <label for="accept"><strong>我同意活動注意事項及隱私權政策條款</strong></label>
+                            </p>
+                            <div id="input_panel" style="display:none; margin-top:15px; padding-top:10px; border-top:1px dashed #cbd5e1;">
+                                <label>請輸入JCB信用卡前6碼與後4碼：</label>
+                                <div class="row">
+                                    <input type="text" class="text_field" maxlength="4" id="txtCreditCard1" name="txtCreditCard1" style="width:70px;"> -
+                                    <input type="text" class="text_field" maxlength="2" id="txtCreditCard2" name="txtCreditCard2" style="width:45px;"> -
+                                    <input type="text" class="text_field" maxlength="4" id="txtCreditCard3" value="****" disabled style="background:#e2e8f0; width:70px;"> -
+                                    <input type="text" class="text_field" maxlength="4" id="txtCreditCard4" name="txtCreditCard4" style="width:70px;">
+                                </div>
+                                <label>請輸入晶片悠遊卡卡號 16 碼：</label>
+                                <div class="row">
+                                    <input type="text" class="text_field" maxlength="4" id="txtEasyCard1" name="txtEasyCard1"> -
+                                    <input type="text" class="text_field" maxlength="4" id="txtEasyCard2" name="txtEasyCard2"> -
+                                    <input type="text" class="text_field" maxlength="4" id="txtEasyCard3" name="txtEasyCard3"> -
+                                    <input type="text" class="text_field" maxlength="4" id="txtEasyCard4" name="txtEasyCard4">
+                                </div>
+                                <br>
+                                <a href="javascript:void(0)" id="send" name="send" class="send" onclick="document.body.innerHTML='<div class=\\'box\\' style=\\'text-align:center;\\'><h2>登錄成功！</h2><p>恭喜您完成 2026 年度 JCB 晶片悠遊卡自動加值 10% 現金回饋活動登錄！</p><p>登錄序號：MOCK-202611209999</p></div>'; return false;">確認送出</a>
+                            </div>
+                        </form>
                     </div>
                 </body>
                 </html>
@@ -516,11 +525,36 @@ class JCBLoginEngine:
         try:
             fill_script = f"""
             () => {{
-                const c1 = document.querySelector('input[name*="Credit"][name*="1"], input[id*="Credit"][id*="1"], input[name*="txtCreditCard1"], input[name="txtCard1"]');
-                const c2 = document.querySelector('input[name*="Credit"][name*="2"], input[id*="Credit"][id*="2"], input[name*="txtCreditCard2"], input[name="txtCard2"]');
-                if (c1) {{ c1.value = "{prefix}"; c1.dispatchEvent(new Event('input', {{ bubbles: true }})); }}
-                if (c2) {{ c2.value = "{suffix}"; c2.dispatchEvent(new Event('input', {{ bubbles: true }})); }}
+                // 1. 自動勾選「我同意活動注意事項及隱私權政策條款」以展開輸入面板
+                const chk = document.querySelector('#accept, input[name="accept"]');
+                if (chk && !chk.checked) {{
+                    chk.checked = true;
+                    chk.dispatchEvent(new Event('click', {{ bubbles: true }}));
+                    chk.dispatchEvent(new Event('change', {{ bubbles: true }}));
+                }}
+                const panel = document.getElementById('input_panel');
+                if (panel) panel.style.display = 'block';
+                const sendBtn = document.getElementById('send');
+                if (sendBtn) sendBtn.style.display = 'block';
+
+                // 2. 注入 JCB 信用卡卡號 (前6碼拆為4+2碼，後4碼注入第4欄位)
+                const c1 = document.querySelector('#txtCreditCard1, input[name="txtCreditCard1"]');
+                const c2 = document.querySelector('#txtCreditCard2, input[name="txtCreditCard2"]');
+                const c4 = document.querySelector('#txtCreditCard4, input[name="txtCreditCard4"]');
                 
+                const pref = "{prefix}";
+                const suff = "{suffix}";
+                if (c1) {{ c1.value = pref.substring(0, 4); c1.dispatchEvent(new Event('input', {{ bubbles: true }})); c1.dispatchEvent(new Event('keyup', {{ bubbles: true }})); }}
+                if (c2) {{ c2.value = pref.substring(4, 6); c2.dispatchEvent(new Event('input', {{ bubbles: true }})); c2.dispatchEvent(new Event('keyup', {{ bubbles: true }})); }}
+                if (c4) {{ c4.value = suff; c4.dispatchEvent(new Event('input', {{ bubbles: true }})); c4.dispatchEvent(new Event('keyup', {{ bubbles: true }})); }}
+
+                // 備援：若頁面為舊版或單一信用卡欄位
+                const fallbackC1 = document.querySelector('input[name="txtCard1"]');
+                if (fallbackC1) fallbackC1.value = pref;
+                const fallbackC2 = document.querySelector('input[name="txtCard2"]');
+                if (fallbackC2) fallbackC2.value = suff;
+
+                // 3. 注入悠遊卡 16 碼 (4碼一組)
                 const e1 = document.querySelector('#txtEasyCard1, input[name="txtEasyCard1"]');
                 const e2 = document.querySelector('#txtEasyCard2, input[name="txtEasyCard2"]');
                 const e3 = document.querySelector('#txtEasyCard3, input[name="txtEasyCard3"]');
@@ -566,7 +600,7 @@ class JCBLoginEngine:
                     self.log(f"[{card_name}] ✓ 驗證碼已自動注入！嘗試自動點擊送出按鈕...")
                     submit_js = """
                     () => {
-                        const btn = document.querySelector('button[type="submit"], input[type="submit"], input[value*="登錄"], input[value*="送出"], button:has-text("登錄")');
+                        const btn = document.querySelector('#send, .send, a[onclick*="Submit_Check"], button[type="submit"], input[type="submit"], input[value*="登錄"], input[value*="送出"]');
                         if (btn) btn.click();
                     }
                     """
