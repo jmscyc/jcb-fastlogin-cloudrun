@@ -1,0 +1,380 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JCB 悠遊卡搶登 - 雲端卡片設定器</title>
+    <style>
+        :root {
+            --primary: #4f46e5;
+            --primary-hover: #4338ca;
+            --bg: #0f172a;
+            --card-bg: #1e293b;
+            --text: #f8fafc;
+            --text-muted: #94a3b8;
+            --border: #334155;
+            --success: #10b981;
+            --danger: #ef4444;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            background-color: var(--bg);
+            color: var(--text);
+            padding: 20px 15px;
+            display: flex;
+            justify-content: center;
+        }
+        .container {
+            width: 100%;
+            max-width: 720px;
+        }
+        header {
+            text-align: center;
+            margin-bottom: 25px;
+        }
+        header h1 {
+            font-size: 1.6rem;
+            color: #fff;
+            margin-bottom: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+        }
+        header p {
+            color: var(--text-muted);
+            font-size: 0.9rem;
+            line-height: 1.4;
+        }
+        .card {
+            background-color: var(--card-bg);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+        }
+        .card h2 {
+            font-size: 1.15rem;
+            margin-bottom: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        .form-group {
+            margin-bottom: 14px;
+        }
+        label {
+            display: block;
+            font-size: 0.85rem;
+            color: var(--text-muted);
+            margin-bottom: 5px;
+        }
+        input[type="text"], input[type="number"], textarea {
+            width: 100%;
+            background-color: #0f172a;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 10px 12px;
+            color: #fff;
+            font-size: 0.95rem;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+        input:focus, textarea:focus {
+            border-color: var(--primary);
+        }
+        .row-inputs {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+        }
+        button {
+            cursor: pointer;
+            border: none;
+            border-radius: 6px;
+            padding: 10px 16px;
+            font-size: 0.9rem;
+            font-weight: 600;
+            transition: all 0.2s;
+        }
+        .btn-primary {
+            background-color: var(--primary);
+            color: #fff;
+            width: 100%;
+        }
+        .btn-primary:hover { background-color: var(--primary-hover); }
+        .btn-secondary {
+            background-color: #334155;
+            color: #f1f5f9;
+        }
+        .btn-secondary:hover { background-color: #475569; }
+        .btn-danger {
+            background-color: transparent;
+            color: var(--danger);
+            border: 1px solid var(--danger);
+            padding: 4px 8px;
+            font-size: 0.8rem;
+        }
+        .btn-danger:hover { background-color: var(--danger); color: #fff; }
+        .card-item {
+            background-color: #0f172a;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 14px;
+            margin-bottom: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        .card-info h3 {
+            font-size: 1rem;
+            color: #e2e8f0;
+            margin-bottom: 4px;
+        }
+        .card-info p {
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            font-family: monospace;
+        }
+        .badge {
+            background: #312e81;
+            color: #818cf8;
+            font-size: 0.75rem;
+            padding: 2px 6px;
+            border-radius: 4px;
+            margin-left: 6px;
+        }
+        .json-preview {
+            background-color: #0f172a;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 12px;
+            color: #38bdf8;
+            font-family: monospace;
+            font-size: 0.82rem;
+            max-height: 180px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            word-break: break-all;
+            margin-bottom: 12px;
+        }
+        .action-row {
+            display: flex;
+            gap: 10px;
+        }
+        .banner-guide {
+            background: rgba(79, 70, 229, 0.1);
+            border: 1px solid rgba(79, 70, 229, 0.4);
+            border-radius: 8px;
+            padding: 12px 14px;
+            font-size: 0.85rem;
+            line-height: 1.5;
+            margin-bottom: 15px;
+        }
+        .banner-guide a { color: #818cf8; text-decoration: underline; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <header>
+        <h1>💳 JCB 雲端卡片設定器</h1>
+        <p>免開本機電腦！直接在手機或瀏覽器管理要搶登的卡片，一鍵產生 GitHub Secrets！</p>
+    </header>
+
+    <div class="banner-guide">
+        📌 <strong>使用說明</strong>：在此頁面新增或修改卡片，確認無誤後點擊最下方的<strong>「📋 複製 JCB_CARDS_JSON」</strong>，然後點擊直達連結貼到您的 <a href="https://github.com/jmscyc/jcb-fastlogin-cloudrun/settings/secrets/actions" target="_blank">GitHub Secrets</a> 即可！每月 1/11/21 日 08:58 雲端將自動搶登。
+    </div>
+
+    <!-- 智慧快速貼上 -->
+    <div class="card">
+        <h2>⚡ 智慧貼上 / 新增卡片</h2>
+        <div class="form-group">
+            <label>支援文字快速剖析 (直接貼上卡名、卡號，以空格隔開)：</label>
+            <input type="text" id="quickInput" placeholder="範例：富邦JCB 356890 1234 0123456789012345">
+        </div>
+        <button class="btn-secondary" style="width:100%; margin-bottom:15px;" onclick="parseQuickPaste()">🚀 智慧帶入欄位</button>
+
+        <div class="row-inputs">
+            <div class="form-group">
+                <label>卡片暱稱：</label>
+                <input type="text" id="cardName" placeholder="例如：富邦JCB">
+            </div>
+            <div class="form-group">
+                <label>搶登優先權 (數字越大越先搶)：</label>
+                <input type="number" id="cardPriority" value="10">
+            </div>
+        </div>
+
+        <div class="row-inputs">
+            <div class="form-group">
+                <label>信用卡前 6 碼：</label>
+                <input type="text" id="cardPrefix" maxlength="6" placeholder="356890">
+            </div>
+            <div class="form-group">
+                <label>信用卡後 4 碼：</label>
+                <input type="text" id="cardSuffix" maxlength="4" placeholder="1234">
+            </div>
+        </div>
+
+        <div class="form-group">
+            <label>悠遊卡卡號 16 碼：</label>
+            <input type="text" id="cardEasy" maxlength="16" placeholder="0123456789012345">
+        </div>
+
+        <button class="btn-primary" onclick="addCard()">＋ 加入卡片清單</button>
+    </div>
+
+    <!-- 卡片清單 -->
+    <div class="card">
+        <h2>
+            <span>📋 當前要搶登的卡片清單</span>
+            <span id="cardCount" style="font-size:0.85rem; color:var(--text-muted);">0 張卡片</span>
+        </h2>
+        <div id="cardsList">
+            <!-- 卡片項目動態插入 -->
+        </div>
+    </div>
+
+    <!-- 輸出 JSON 與同步 -->
+    <div class="card">
+        <h2>🔑 匯出 GitHub Secrets 設定字串</h2>
+        <div class="json-preview" id="jsonPreview">[]</div>
+        <div class="action-row">
+            <button class="btn-primary" onclick="copyJson()">📋 複製 JCB_CARDS_JSON</button>
+            <button class="btn-secondary" onclick="openGitHubSecrets()">🔗 前往 GitHub 貼上</button>
+        </div>
+    </div>
+</div>
+
+<script>
+    const STORAGE_KEY = "jcb_cloud_cards_v1";
+
+    let cards = [];
+
+    function loadCards() {
+        const saved = localStorage.getItem(STORAGE_KEY);
+        if (saved) {
+            try { cards = JSON.parse(saved); } catch (e) { cards = []; }
+        } else {
+            // 預設範例卡片
+            cards = [
+                {
+                    name: "富邦JCB",
+                    credit_card_prefix: "356890",
+                    credit_card_suffix: "1234",
+                    easycard_number: "0123456789012345",
+                    is_selected: 1,
+                    priority: 10
+                }
+            ];
+            saveCards();
+        }
+        renderCards();
+    }
+
+    function saveCards() {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(cards));
+        renderCards();
+    }
+
+    function renderCards() {
+        const listEl = document.getElementById("cardsList");
+        const countEl = document.getElementById("cardCount");
+        const previewEl = document.getElementById("jsonPreview");
+
+        countEl.innerText = `${cards.length} 張卡片`;
+        previewEl.innerText = JSON.stringify(cards, null, 2);
+
+        if (cards.length === 0) {
+            listEl.innerHTML = `<p style="color:var(--text-muted); font-size:0.9rem; text-align:center; padding:15px;">目前尚無卡片，請在上方新增卡片。</p>`;
+            return;
+        }
+
+        listEl.innerHTML = cards.map((c, idx) => `
+            <div class="card-item">
+                <div class="card-info">
+                    <h3>${c.name} <span class="badge">優先度 ${c.priority || 0}</span></h3>
+                    <p>卡號：${c.credit_card_prefix}******${c.credit_card_suffix} | 悠遊卡：${c.easycard_number}</p>
+                </div>
+                <button class="btn-danger" onclick="deleteCard(${idx})">刪除</button>
+            </div>
+        `).join("");
+    }
+
+    function parseQuickPaste() {
+        const val = document.getElementById("quickInput").value.trim();
+        if (!val) return alert("請輸入或貼上卡號文字！");
+        
+        const parts = val.split(/[\s,]+/);
+        if (parts.length >= 4) {
+            document.getElementById("cardName").value = parts[0];
+            document.getElementById("cardPrefix").value = parts[1].replace(/\D/g, "");
+            document.getElementById("cardSuffix").value = parts[2].replace(/\D/g, "");
+            document.getElementById("cardEasy").value = parts[3].replace(/\D/g, "");
+        } else {
+            alert("格式不符，請依序提供：卡片名稱 前6碼 後4碼 悠遊卡16碼 (以空格分開)");
+        }
+    }
+
+    function addCard() {
+        const name = document.getElementById("cardName").value.trim();
+        const prefix = document.getElementById("cardPrefix").value.trim();
+        const suffix = document.getElementById("cardSuffix").value.trim();
+        const easy = document.getElementById("cardEasy").value.trim();
+        const priority = parseInt(document.getElementById("cardPriority").value) || 10;
+
+        if (!name) return alert("請輸入卡片暱稱！");
+        if (prefix.length !== 6 || !/^\d+$/.test(prefix)) return alert("信用卡前6碼必須為 6 位數字！");
+        if (suffix.length !== 4 || !/^\d+$/.test(suffix)) return alert("信用卡後4碼必須為 4 位數字！");
+        if (easy.length !== 16 || !/^\d+$/.test(easy)) return alert("悠遊卡號必須為 16 位數字！");
+
+        cards.push({
+            name,
+            credit_card_prefix: prefix,
+            credit_card_suffix: suffix,
+            easycard_number: easy,
+            is_selected: 1,
+            priority
+        });
+
+        // 依優先度排序
+        cards.sort((a, b) => (b.priority || 0) - (a.priority || 0));
+        saveCards();
+
+        // 清空輸入框
+        document.getElementById("cardName").value = "";
+        document.getElementById("cardPrefix").value = "";
+        document.getElementById("cardSuffix").value = "";
+        document.getElementById("cardEasy").value = "";
+        document.getElementById("quickInput").value = "";
+        alert("✓ 卡片已成功加入！請記得複製下方 JSON 至 GitHub Secrets。");
+    }
+
+    function deleteCard(idx) {
+        if (confirm("確定要刪除這張卡片嗎？")) {
+            cards.splice(idx, 1);
+            saveCards();
+        }
+    }
+
+    function copyJson() {
+        const text = JSON.stringify(cards, null, 2);
+        navigator.clipboard.writeText(text).then(() => {
+            alert("✓ 已成功複製卡片 JSON 到剪貼簿！\n\n請前往 GitHub Secrets 的「JCB_CARDS_JSON」貼上並存檔即可。");
+        }).catch(err => {
+            alert("複製失敗，請手動全選下方框內的文字複製。");
+        });
+    }
+
+    function openGitHubSecrets() {
+        window.open("https://github.com/jmscyc/jcb-fastlogin-cloudrun/settings/secrets/actions", "_blank");
+    }
+
+    window.onload = loadCards;
+</script>
+
+</body>
+</html>
