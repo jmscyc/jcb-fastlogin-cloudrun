@@ -36,6 +36,8 @@ async def main():
     tg_token = os.environ.get("TG_BOT_TOKEN", "")
     tg_chat_id = os.environ.get("TG_CHAT_ID", "")
     webhook_url = os.environ.get("WEBHOOK_URL", "")
+    gas_sync_url = os.environ.get("GAS_SYNC_URL", "")
+    gas_sync_key = os.environ.get("GAS_SYNC_KEY", "888")
 
     if tg_token:
         database.update_setting("tg_bot_token", tg_token)
@@ -44,7 +46,22 @@ async def main():
     if webhook_url:
         database.update_setting("webhook_url", webhook_url)
 
-    if cards_env:
+    # 優先從 Google Sheet 雲端試算表載入卡片 (若有提供 GAS_SYNC_URL)
+    if gas_sync_url:
+        try:
+            import urllib.request, json
+            print("[INFO] 偵測到 Google Sheet Webhook，正在從雲端試算表同步卡片庫...")
+            req_url = f"{gas_sync_url}?action=get_cards&key={gas_sync_key}"
+            req = urllib.request.Request(req_url, headers={"User-Agent": "JCBCliRunner"})
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+                if data.get("status") == "ok" and data.get("cards"):
+                    database.import_cards_json(json.dumps(data["cards"]))
+                    print(f"[INFO] 成功從 Google Sheet 載入 {len(data['cards'])} 張卡片！")
+        except Exception as e:
+            print(f"[WARN] 從 Google Sheet 同步卡片失敗: {e}，將嘗試讀取本機或 JCB_CARDS_JSON...")
+
+    if cards_env and not gas_sync_url:
         try:
             print("[INFO] 偵測到環境變數 JCB_CARDS_JSON，正在載入卡片庫...")
             database.import_cards_json(cards_env)
